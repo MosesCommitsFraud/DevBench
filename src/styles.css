@@ -1,5 +1,5 @@
 /* DevBench design tokens.
-   Direction: the quiet, dense look of T3 Code. Neutral surfaces (near-black in dark, near-white
+   Direction: quiet and dense. Neutral surfaces (near-black in dark, near-white
    in light), hairline borders, grouped rows instead of cards, small labels, figures in mono.
    Colour is rare: the logo's blue for the primary action and selection, its turquoise for
    "running", amber and red only for warnings. */
@@ -392,7 +392,7 @@ select {
   }
 }
 
-/* A group of rows, divided by hairlines (T3 Code's settings group) */
+/* A group of rows, divided by hairlines */
 .rows {
   border: 1px solid var(--line);
   border-radius: var(--r-panel);

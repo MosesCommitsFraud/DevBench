@@ -1,6 +1,6 @@
 <script lang="ts">
   // Little drawings by hand for quiet moments: a sleeping server, a screen that is off, an
-  // empty folder. Written underneath in a hand, like the hints on a Kladde board.
+  // empty folder, with a short note underneath in a hand.
   let {
     kind,
     label = "",

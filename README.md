@@ -2,204 +2,186 @@
 
 # DevBench
 
-Eine Desktop-App als Schaltzentrale für Heimserver und ihre virtuellen Maschinen: Status auf einen Blick, Server per Wake-on-LAN aufwecken, herunterfahren, VMs starten und stoppen und den Bildschirm einer VM direkt im Fenster bedienen. Alles läuft über SSH, ohne Hilfsprogramme auf dem Server.
+A desktop app that is the control center for your home servers and their virtual machines: status at a glance, wake a server over the network, shut it down, start and stop VMs, open a terminal or a VM's screen right in the window, and move files between your PC, the server and its guests. Everything runs over SSH, with nothing to install on the server.
 
-> **Status:** frühe Entwicklung (0.1). Getestet unter Windows 11 mit einem Ubuntu-Server und libvirt/KVM.
+> **Status:** early development (0.2). Tested on Windows 11 with an Ubuntu server and libvirt/KVM.
 
-## English summary
+## Features
 
-DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a control center for one or more home servers and their libvirt/KVM virtual machines.
-
-- **Dashboard:** online/offline, uptime, CPU, RAM and disk per server; running state per VM.
-- **Buttons:** Wake-on-LAN, shut down / reboot the server (over SSH, via a narrow sudoers rule), start / shut down / reboot / force off VMs (`virsh` over SSH).
+- **Dashboard** per server: online or not, operating system, IP address, uptime, CPU, memory, disk and network traffic. Per VM: state, vCPUs, memory, IP address, CPU load and a small live picture of its screen.
+- **Server:** wake (Wake-on-LAN), shut down, restart.
+- **VMs (libvirt/KVM):** start, shut down, restart, force off. Shutting down and restarting run inside the guest over SSH when it is reachable (much faster than ACPI, especially for Windows), with ACPI as fallback.
 - **Terminal:** a shell on the server or inside a guest, in the app window (xterm.js over the same SSH connection).
-- **Embedded VNC:** view and control a VM's desktop, or the server's own desktop, inside the app (noVNC). DevBench opens the SSH tunnel itself, in-process (via [russh](https://github.com/Eugeny/russh)), including jump hosts. No external tunnel, no separate VNC viewer.
-- **Files:** one file browser for this PC, every server and every VM guest (SFTP): pick a system from the list, breadcrumbs, filter, sort, upload/download, copy/cut/paste across systems, drag rows onto a system, drop files in from Explorer/Finder; transfers with progress and cancel.
-- **Light and dark theme** from the logo colours, following the system or chosen in Settings.
-- **AI agents (MCP):** `devbench mcp` is an MCP server, so Claude and other agents can check status, wake machines, start VMs, run commands and edit files on the server or inside a guest, and take screenshots and drive mouse and keyboard in a VM. Everything is off until enabled per machine/VM; the app shows connected agents and logs every agent action. See [`docs/agents.md`](docs/agents.md).
-- **Nothing hardcoded:** all hosts live in a config file in your OS's app config folder, edited in the app's Settings screen; hosts can be imported from `~/.ssh/config`. See [`config.example.toml`](config.example.toml).
-
-**Install:** installers for Windows, macOS and Linux are attached to GitHub Releases; installed copies check for updates on start, show a badge and update themselves from Settings (Linux: AppImage). Releases are started from GitHub Actions with a version number, see [`docs/releasing.md`](docs/releasing.md).
-
-**Build:** install Rust (1.85+), Node.js (20+) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS, then `npm install` and `npm run tauri dev` (development) or `npm run tauri build` (installer).
-
-**Server setup:** OpenSSH with key auth; SSH user in group `libvirt`; for shut down/reboot install [`docs/sudoers-devbench`](docs/sudoers-devbench); for Wake-on-LAN see [`docs/wake-on-lan.md`](docs/wake-on-lan.md); for VNC into VMs see [`docs/server-setup.md`](docs/server-setup.md). The guides are in German with an English summary at the end of each.
-
----
-
-## Funktionen
-
-- **Dashboard** pro Server: erreichbar oder nicht, Betriebssystem, Prozessor, IP-Adresse, Laufzeit, CPU-Verlauf der letzten Minuten, Arbeitsspeicher, Festplatte und Netzwerk. Pro VM: Zustand, vCPUs, Arbeitsspeicher, IP-Adresse und CPU-Last.
-- **Terminal:** Shell auf dem Server oder in einer VM direkt im Fenster, über dieselbe SSH-Verbindung.
-- **Desktop des Servers:** hat der Server eine grafische Oberfläche mit VNC-Server, zeigt DevBench sie wie eine VM an, siehe [`docs/server-setup.md`](docs/server-setup.md#terminal-und-desktop-des-servers).
-- **Server:** Aufwecken (Wake-on-LAN), Herunterfahren, Neustarten.
-- **VMs (libvirt/KVM):** Starten, Herunterfahren (ACPI), Neustarten, Ausschalten erzwingen.
-- **VNC im Fenster:** Bildschirm einer VM mit Maus und Tastatur bedienen. DevBench baut die SSH-Verbindung selbst auf, auch über einen Sprung-Server (Jump Host) in den Gast. Kein `ssh -L` im Terminal, kein separates VNC-Programm.
-- **Dateien:** ein Dateibrowser für diesen PC, alle Server und alle VMs (SFTP), siehe [Dateien übertragen](#dateien-übertragen).
-- **Hell und dunkel:** beide Designs aus den Logo-Farben; folgt dem System oder wird in den Einstellungen bzw. unten in der Seitenleiste gewählt.
-- **KI-Agenten:** Claude und andere Agenten können Server und VMs über MCP bedienen, siehe [unten](#steuerung-durch-ki-agenten-mcp).
-- **Mehrere Server**, jeder mit beliebig vielen VMs.
-- **Import aus `~/.ssh/config`:** vorhandene Host-Aliasse übernehmen; Benutzer, Port, Schlüssel und ProxyJump werden von dort gelesen, wenn sie in DevBench leer bleiben.
+- **Screens over VNC:** view and control a VM's desktop, or the server's own desktop, in the window (noVNC). DevBench opens the SSH tunnel itself, in-process, including jump hosts: no `ssh -L` in a terminal, no separate VNC viewer.
+- **Files:** one file browser for this PC, every server and every VM guest (SFTP), see [Transferring files](#transferring-files).
+- **Command palette:** <kbd>Ctrl</kbd>+<kbd>K</kbd> opens terminals, screens and file browsers, starts VMs and wakes servers by keyboard.
+- **AI agents (MCP):** Claude and other agents can operate servers and VMs, see [below](#ai-agents-mcp).
+- **Light and dark theme**, following the system or chosen in Settings; a colour and monogram per server and VM.
+- **Several servers**, each with any number of VMs.
+- **Import from `~/.ssh/config`:** take over existing host aliases; user, port, key and ProxyJump are read from there when left empty in DevBench.
+- **Updates:** installed copies check GitHub Releases on start and update themselves from Settings.
 
 ## Installation
 
-### Fertige Version
+### Ready-made builds
 
-Installer für Windows, macOS und Linux liegen unter **Releases** im GitHub-Repository (sobald das erste Release veröffentlicht ist). Einmal installiert, sucht DevBench beim Start selbst nach neuen Versionen und installiert sie auf Knopfdruck. Unter Linux gilt das für das AppImage. Wie Releases entstehen: [`docs/releasing.md`](docs/releasing.md).
+Installers for Windows, macOS and Linux are attached to the [GitHub Releases](https://github.com/MosesCommitsFraud/DevBench/releases). Once installed, DevBench looks for new versions on start; when one is available, a badge appears on **Settings**, and the **Version** card there installs it and restarts the app. On Linux this works for the AppImage. How releases are made: [`docs/releasing.md`](docs/releasing.md).
 
-### Aus dem Quellcode bauen
+### Building from source
 
-#### Voraussetzungen
+#### Requirements
 
-- [Rust](https://rustup.rs/) 1.85 oder neuer
-- [Node.js](https://nodejs.org/) 20 oder neuer (mit npm)
-- Die [Tauri-Voraussetzungen](https://v2.tauri.app/start/prerequisites/) für das eigene Betriebssystem:
-  - **Windows:** Microsoft C++ Build Tools („Desktopentwicklung mit C++“) und WebView2 (bei Windows 10/11 meist schon installiert).
-  - **Linux:** u. a. `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`.
+- [Rust](https://rustup.rs/) 1.85 or newer
+- [Node.js](https://nodejs.org/) 20 or newer (with npm)
+- The [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system:
+  - **Windows:** Microsoft C++ Build Tools ("Desktop development with C++") and WebView2 (usually present on Windows 10/11).
+  - **Linux:** among others `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`.
   - **macOS:** Xcode Command Line Tools.
 
-#### Bauen und starten
+#### Build and run
 
 ```sh
 git clone https://github.com/MosesCommitsFraud/DevBench.git
 cd DevBench
 npm install
-npm run tauri dev      # Entwicklungsmodus mit Hot Reload
-npm run tauri build    # Installer bauen
+npm run tauri dev      # development mode with hot reload
+npm run tauri build    # build the installers (signs the update bundles, see docs/releasing.md)
 ```
 
-Die Installer landen in `src-tauri/target/release/bundle/` (unter Windows `msi/` und `nsis/`).
+The installers end up in `src-tauri/target/release/bundle/` (on Windows in `msi/` and `nsis/`).
 
-## Konfiguration
+## Configuration
 
-DevBench speichert seine Einstellungen in einer TOML-Datei im Konfigurationsordner des Betriebssystems:
+DevBench keeps its settings in a TOML file in your operating system's config folder:
 
-| System  | Pfad |
+| System  | Path |
 |---------|------|
 | Windows | `%APPDATA%\DevBench\config.toml` |
 | Linux   | `~/.config/DevBench/config.toml` |
 | macOS   | `~/Library/Application Support/DevBench/config.toml` |
 
-Beim ersten Start legt DevBench die Datei leer an. Server und VMs trägt man im Einstellungs-Bildschirm der App ein (oder importiert sie aus `~/.ssh/config`). Die Datei lässt sich auch von Hand bearbeiten; danach in der App „Neu laden“ drücken oder sie neu starten. Ein vollständiges, kommentiertes Beispiel steht in [`config.example.toml`](config.example.toml).
+On first start DevBench creates the file empty. You add servers and VMs in the app's Settings screen (or import them from `~/.ssh/config`). You can also edit the file by hand; then press "Reload from file" in the app or restart it. A complete, commented example is in [`config.example.toml`](config.example.toml).
 
-Die eigene Konfiguration gehört **nicht** ins Repository.
+Your own config does **not** belong in the repository. Nothing about any particular setup (hosts, MAC addresses, users) is hard-coded in DevBench.
 
-### Server (`[[machines]]`)
+### Servers (`[[machines]]`)
 
-| Feld | Bedeutung |
-|------|-----------|
-| `id` | interne, eindeutige Kennung (vergibt die App) |
-| `name` | Anzeigename |
-| `ssh_host` | Hostname, IP oder ein `Host`-Alias aus `~/.ssh/config` |
-| `ssh_port` | `0` = aus `~/.ssh/config`, sonst 22 |
-| `ssh_user` | leer = aus `~/.ssh/config`, sonst der lokale Benutzername |
-| `ssh_key` | leer = `IdentityFile` aus `~/.ssh/config`, sonst `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`; der ssh-agent wird auch versucht |
-| `jump_host` | optional, wie `ProxyJump`: `[user@]host[:port]` oder Alias; leer = `ProxyJump` aus `~/.ssh/config` |
-| `mac` | MAC-Adresse für Wake-on-LAN; leer = kein Aufwecken-Knopf |
-| `wol_broadcast` | Broadcast-Adresse des Server-Netzes, z. B. `192.168.1.255` |
-| `wol_port` | UDP-Port für das Magic Packet, meist `9` |
-| `desktop_vnc_port`, `desktop_vnc_host` | VNC-Server mit dem Desktop des Servers selbst, durch SSH erreicht; `0` = kein Desktop-Knopf, Host leer = `127.0.0.1` |
-| `agent_access`, `agent_exec`, `agent_power` | Freigaben für KI-Agenten, standardmäßig `false`, siehe [`docs/agents.md`](docs/agents.md) |
+| Field | Meaning |
+|-------|---------|
+| `id` | internal unique id (set by the app) |
+| `name` | display name |
+| `color` | colour of its monogram, e.g. `"teal"`; empty = picked from the name |
+| `ssh_host` | hostname, IP or a `Host` alias from `~/.ssh/config` |
+| `ssh_port` | `0` = from `~/.ssh/config`, else 22 |
+| `ssh_user` | empty = from `~/.ssh/config`, else your local user name |
+| `ssh_key` | empty = `IdentityFile` from `~/.ssh/config`, else `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`; ssh-agent is tried too |
+| `jump_host` | optional, like `ProxyJump`: `[user@]host[:port]` or an alias; empty = `ProxyJump` from `~/.ssh/config` |
+| `mac` | MAC address for Wake-on-LAN; empty = no Wake button |
+| `wol_broadcast` | broadcast address of the server's network, e.g. `192.168.1.255` |
+| `wol_port` | UDP port for the magic packet, usually `9` |
+| `desktop_vnc_port`, `desktop_vnc_host` | a VNC server showing the server's own desktop, reached through SSH; `0` = no Desktop button, empty host = `127.0.0.1` |
+| `agent_access`, `agent_exec`, `agent_power` | permissions for AI agents, all `false` by default, see [`docs/agents.md`](docs/agents.md) |
 
 ### VMs (`[[machines.vms]]`)
 
-| Feld | Bedeutung |
-|------|-----------|
-| `id`, `name` | Kennung und Anzeigename |
-| `libvirt_name` | Name der VM in `virsh list --all` |
-| `libvirt_uri` | meist `qemu:///system` |
-| `guest_address` | leer = libvirt fragen (`virsh domifaddr`), sonst IP/Hostname des Gasts, wie der Server ihn sieht |
-| `guest_ssh_user`, `guest_ssh_port`, `guest_ssh_key` | SSH-Anmeldung im Gast (nur für `vnc_mode = "guest"`) |
-| `vnc_mode` | `"guest"`: VNC-Server im Gast, Zugang per SSH durch den Server in den Gast. `"host"`: QEMUs eigene VNC-Anzeige auf dem Server. `"none"`: kein VNC |
-| `vnc_host`, `vnc_port` | Ziel der Weiterleitung, vom Gast (`guest`) bzw. vom Server (`host`) aus gesehen; meist `127.0.0.1:5900` |
-| `vnc_password` | nur nötig, wenn der VNC-Server ein Passwort verlangt und ein Agent den Bildschirm nutzen soll; steht im Klartext in der Datei (das Fenster der App fragt selbst nach) |
-| `agent_access`, `agent_exec` | Freigaben für KI-Agenten in dieser VM, standardmäßig `false` |
+| Field | Meaning |
+|-------|---------|
+| `id`, `name`, `color` | id, display name and monogram colour |
+| `libvirt_name` | the VM's name in `virsh list --all` |
+| `libvirt_uri` | usually `qemu:///system` |
+| `guest_address` | empty = ask libvirt (`virsh domifaddr`), else the guest's IP/hostname as the server sees it |
+| `guest_ssh_user`, `guest_ssh_port`, `guest_ssh_key` | SSH login into the guest (for the terminal, files, fast shutdown and `vnc_mode = "guest"`) |
+| `vnc_mode` | `"guest"`: VNC server inside the guest, reached over SSH through the server into the guest. `"host"`: QEMU's own VNC display on the server. `"none"`: no VNC |
+| `vnc_host`, `vnc_port` | where the forwarding goes, as seen from the guest (`guest`) or from the server (`host`); usually `127.0.0.1:5900` |
+| `vnc_password` | only needed if the VNC server asks for one and an agent should use the screen; stored in plain text (the app window asks by itself) |
+| `agent_access`, `agent_exec` | permissions for AI agents inside this VM, `false` by default |
 
-### SSH-Host-Schlüssel
+### SSH host keys
 
-DevBench liest `~/.ssh/known_hosts` (ohne hineinzuschreiben) und eine eigene `known_hosts` im selben Ordner wie die Konfiguration. Unbekannte Schlüssel zeigt die App mit Fingerabdruck an und fragt, ob man ihnen vertraut; ein geänderter Schlüssel führt zu einem Fehler.
+DevBench reads `~/.ssh/known_hosts` (without writing to it) and its own `known_hosts` next to the config file. Unknown keys are shown with their fingerprint and you decide whether to trust them; a changed key is an error.
 
-## Server einrichten
+## Setting up a server
 
-Kurzfassung, Details in [`docs/server-setup.md`](docs/server-setup.md):
+Short version; the details are in [`docs/server-setup.md`](docs/server-setup.md) (the guides in `docs/` are in German with an English summary at the end of each).
 
-1. **SSH:** OpenSSH-Server mit Schlüssel-Anmeldung; `ssh <host>` muss vom PC aus ohne Passwort klappen.
-2. **libvirt:** SSH-Benutzer in die Gruppe `libvirt` aufnehmen (`sudo usermod -aG libvirt <user>`), damit `virsh` ohne sudo geht.
-3. **Herunterfahren/Neustart:** sudoers-Regel aus [`docs/sudoers-devbench`](docs/sudoers-devbench) einrichten (siehe unten).
-4. **Wake-on-LAN:** BIOS und Netzwerkkarte vorbereiten, siehe [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
-5. **VNC in VMs:** je nach Modus einen VNC-Server im Gast (z. B. TightVNC, nur auf localhost) oder QEMUs VNC-Anzeige, siehe [`docs/server-setup.md`](docs/server-setup.md#vnc-in-die-vm).
+1. **SSH:** OpenSSH server with key login; `ssh <host>` must work from your PC without a password.
+2. **libvirt:** add the SSH user to the `libvirt` group (`sudo usermod -aG libvirt <user>`) so `virsh` works without sudo.
+3. **Shut down/restart:** install the sudoers rule from [`docs/sudoers-devbench`](docs/sudoers-devbench) (see below).
+4. **Wake-on-LAN:** prepare the BIOS and network card, see [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
+5. **VNC into VMs:** depending on the mode, a VNC server inside the guest (e.g. TightVNC, localhost only) or QEMU's VNC display, see [`docs/server-setup.md`](docs/server-setup.md#vnc-in-die-vm).
+6. **The server's own desktop (optional):** a VNC server on the server, e.g. a virtual Xfce desktop with TigerVNC as a user service, see [`docs/server-setup.md`](docs/server-setup.md#terminal-und-desktop-des-servers).
 
-### sudoers-Regel für Herunterfahren und Neustart
+### sudoers rule for shutting down and restarting
 
-DevBench führt `sudo -n systemctl poweroff` bzw. `sudo -n systemctl reboot` aus. Damit das ohne Passwort geht, aber **nichts anderes** erlaubt wird, auf dem Server eine eigene sudoers-Datei anlegen:
+DevBench runs `sudo -n systemctl poweroff` and `sudo -n systemctl reboot`. To allow that without a password, but **nothing else**, create a sudoers file of its own on the server:
 
 ```sh
-command -v systemctl                      # Pfad prüfen, meist /usr/bin/systemctl
+command -v systemctl                      # check the path, usually /usr/bin/systemctl
 sudo visudo -f /etc/sudoers.d/devbench
 ```
 
-Inhalt (Benutzername anpassen):
+Content (adjust the user name):
 
 ```
 <user> ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
 ```
 
-Danach `sudo chmod 0440 /etc/sudoers.d/devbench` und als dieser Benutzer mit `sudo -n -l` prüfen, dass genau diese zwei Befehle aufgelistet sind. `visudo` prüft die Syntax vor dem Speichern; eine kaputte sudoers-Datei kann sonst sudo komplett sperren. Die Vorlage mit Erklärung liegt in [`docs/sudoers-devbench`](docs/sudoers-devbench). Ohne diese Regel funktioniert alles außer diesen zwei Knöpfen.
+Then `sudo chmod 0440 /etc/sudoers.d/devbench`, and as that user check with `sudo -n -l` that exactly these two commands are listed. `visudo` checks the syntax before saving; a broken sudoers file can lock sudo out completely. The template with explanations is in [`docs/sudoers-devbench`](docs/sudoers-devbench). Without this rule everything except these two buttons works.
 
 ### Wake-on-LAN
 
-1. Im BIOS/UEFI *Wake on LAN* bzw. *Power On By PCI-E* einschalten und *ErP/EuP* ausschalten.
-2. Unter Linux WoL auf der physischen Netzwerkkarte dauerhaft aktivieren (`ethtool -s <iface> wol g`, über NetworkManager, netplan oder systemd-networkd).
-3. In DevBench `mac` und `wol_broadcast` eintragen. PC und Server müssen im selben lokalen Netz sein.
+1. In the BIOS/UEFI, enable *Wake on LAN* or *Power On By PCI-E* and disable *ErP/EuP*.
+2. On Linux, enable WoL on the physical network card permanently (`ethtool -s <iface> wol g`, via NetworkManager, netplan or systemd-networkd).
+3. In DevBench, enter `mac` and `wol_broadcast`. PC and server must be on the same local network.
 
-Schritt für Schritt: [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
+Step by step: [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
 
-## Dateien übertragen
+## Transferring files
 
-Unter **Dateien** in der Seitenleiste steht links die Liste der Systeme: **Dieser PC**, jeder Server und darunter seine VMs (nur VMs mit eingetragenem `guest_ssh_user`). Ein Klick wählt das System, rechts erscheint sein Dateibrowser. DevBench merkt sich pro System den zuletzt geöffneten Ordner. Die Übertragung läuft über SFTP durch dieselbe SSH-Verbindung, auf dem Server ist nichts zusätzlich nötig.
+Under **Files** in the sidebar, the list on the left shows the systems: **This PC**, every server and, below it, its VMs (only VMs with a `guest_ssh_user`). A click picks the system, and its file browser opens on the right. DevBench remembers the last folder per system. Transfers run over SFTP through the same SSH connection; nothing extra is needed on the server. The **Files** buttons on the dashboard open a server or VM directly.
 
-- **Navigieren:** über die Pfadleiste (Klick auf einen Teil springt dorthin, Klick daneben oder Strg+L zum Eintippen), über **Orte** (Home, Desktop, Downloads, Laufwerke, `/`), Zurück (Alt+←) und Nach oben (Alt+↑). In Windows-Gästen sehen Pfade so aus: `/C:/Users/name`.
-- **Finden:** **Filtern** (Strg+F) blendet alles aus, was den Text nicht enthält; Klick auf eine Spaltenüberschrift sortiert.
-- **Hoch- und herunterladen:** auf einem Server oder in einer VM lädt **Hochladen** Dateien von diesem PC in den offenen Ordner, **Herunterladen** speichert die Auswahl im Downloads-Ordner. Dateien aus dem Explorer/Finder lassen sich auch einfach auf die Liste oder auf ein System ziehen.
-- **Zwischen Systemen:** **Kopieren** (Strg+C) oder **Ausschneiden** (Strg+X), anderes System wählen, Ordner öffnen, **Einfügen** (Strg+V). Oder Zeilen auf ein System in der Liste ziehen: sie werden in dessen zuletzt geöffneten Ordner kopiert (mit Umschalt verschoben). Innerhalb eines Systems verschiebt Ziehen auf einen Ordner (mit Umschalt kopiert).
-- **Ordner:** neu, umbenennen (F2), löschen (Entf). Gelöschtes landet **nicht** im Papierkorb.
-- **Übertragungen** erscheinen unten mit Fortschritt und lassen sich abbrechen.
+- **Navigating:** with the path bar (click a part to jump there; click next to it or press <kbd>Ctrl</kbd>+<kbd>L</kbd> to type a path), with **Places** (home, desktop, downloads, disks, `/`), Back (<kbd>Alt</kbd>+<kbd>←</kbd>) and Up (<kbd>Alt</kbd>+<kbd>↑</kbd>). In Windows guests, paths look like `/C:/Users/name`.
+- **Finding:** **Filter** (<kbd>Ctrl</kbd>+<kbd>F</kbd>) hides everything that does not contain the text; clicking a column header sorts.
+- **Upload and download:** on a server or VM, **Upload** copies files from this PC into the open folder, **Download** saves the selection to your Downloads folder. You can also drag files from Explorer/Finder onto the list or onto a system.
+- **Between systems:** **Copy** (<kbd>Ctrl</kbd>+<kbd>C</kbd>) or **Cut** (<kbd>Ctrl</kbd>+<kbd>X</kbd>), pick another system, open a folder, **Paste** (<kbd>Ctrl</kbd>+<kbd>V</kbd>). Or drag rows onto a system in the list: they are copied into its last open folder (moved with <kbd>Shift</kbd>). Within one system, dragging onto a folder moves (copies with <kbd>Shift</kbd>).
+- **Folders:** new, rename (<kbd>F2</kbd>), delete (<kbd>Del</kbd>). Deleted files do **not** go to a recycle bin.
+- **Transfers** appear at the bottom with progress and can be cancelled.
 
-## Steuerung durch KI-Agenten (MCP)
+## AI agents (MCP)
 
-DevBench enthält einen MCP-Server, damit Claude und andere Agenten Server und VMs direkt bedienen können: Status, Aufwecken, VMs starten, Befehle und Dateien auf dem Server oder im Gast, und Screenshots, Maus und Tastatur für grafische Programme in der VM. Einrichten in Claude Code:
+DevBench contains an MCP server so Claude and other agents can operate servers and VMs directly: status, waking, starting VMs, commands and files on the server or in a guest, and screenshots, mouse and keyboard for graphical programs in a VM. To set it up in Claude Code:
 
 ```sh
 claude mcp add devbench -- "%LOCALAPPDATA%\DevBench\devbench.exe" mcp
 ```
 
-Agenten sehen nur, was man pro Server und VM in den Einstellungen freigibt (`agent_access`, `agent_exec`, `agent_power`; alles standardmäßig aus). Unter **Verbundene Agenten** zeigt die App, welche Agenten gerade verbunden sind; jede Agenten-Aktion landet in `activity.log` und ist unter **Agenten-Aktivität** sichtbar. Alle Werkzeuge und Freigaben: [`docs/agents.md`](docs/agents.md).
+Agents only see what you allow per server and VM in Settings (`agent_access`, `agent_exec`, `agent_power`; all off by default). The app lists the agents connected right now, and every agent action is written to `activity.log` and shown under **Agent activity**. All tools and permissions: [`docs/agents.md`](docs/agents.md).
 
-## Sicherheit
+## Security
 
-- DevBench nutzt nur SSH mit Schlüsseln; Passwörter für SSH werden nicht gespeichert. Einzige Ausnahme ist das optionale `vnc_password` für Agenten, das im Klartext in `config.toml` steht.
-- VNC-Server sollen nur auf `127.0.0.1` lauschen. DevBench leitet die Verbindung durch SSH weiter und öffnet lokal einen WebSocket nur auf `127.0.0.1` mit einem einmaligen Token.
-- Die sudoers-Regel erlaubt genau zwei feste Befehle.
-- KI-Agenten haben nur Zugriff, wo er ausdrücklich freigegeben ist; jede ihrer Aktionen wird protokolliert.
-- DevBench ändert auf dem Server nichts von selbst: Es liest Status und führt nur die Befehle der Knöpfe aus, die man anklickt.
+- DevBench uses SSH with keys only; SSH passwords are never stored. The one exception is the optional `vnc_password` for agents, stored in plain text in `config.toml`.
+- VNC servers should listen on `127.0.0.1` only. DevBench forwards the connection through SSH and opens a local WebSocket on `127.0.0.1` only, with a one-time token.
+- The sudoers rule allows exactly two fixed commands.
+- AI agents only get access where it is explicitly allowed, and every action they take is logged.
+- Updates are verified against the public key built into the app before they are installed.
+- DevBench changes nothing on the server by itself: it reads the status and only runs the commands behind the buttons you click.
 
 ## Roadmap
 
-Noch nicht eingebaut, geplant:
+Not built yet, planned:
 
-- **RDP** über [IronRDP](https://github.com/Devolutions/IronRDP) (Devolutions): in Windows-VMs und auf einen Linux-Desktop des Servers (gnome-remote-desktop im Headless-Modus oder xrdp), ebenfalls durch den SSH-Tunnel.
-- **Logs** ansehen (journald des Servers, libvirt-Logs der VMs).
+- **RDP** via [IronRDP](https://github.com/Devolutions/IronRDP) (Devolutions): into Windows VMs and onto a Linux desktop on the server, also through the SSH tunnel.
+- **Logs:** journald of the server, libvirt logs of the VMs.
 
-## Technik
+## Technology
 
-- [Tauri 2](https://tauri.app/): Rust-Backend, Web-Frontend mit [Svelte 5](https://svelte.dev/) und TypeScript, gebaut mit Vite.
-- [russh](https://github.com/Eugeny/russh): SSH-Client in Rust (Schlüssel, ssh-agent, Jump Hosts, Port-Weiterleitung im Prozess).
-- [noVNC](https://github.com/novnc/noVNC): VNC-Client im Frontend; das Backend verbindet dessen WebSocket mit der SSH-Weiterleitung (wie websockify).
+- [Tauri 2](https://tauri.app/): Rust backend, web frontend with [Svelte 5](https://svelte.dev/) and TypeScript, built with Vite.
+- [russh](https://github.com/Eugeny/russh): SSH client in Rust (keys, ssh-agent, jump hosts, in-process port forwarding, SFTP).
+- [noVNC](https://github.com/novnc/noVNC): VNC client in the frontend; the backend bridges its WebSocket to the SSH forwarding (like websockify).
+- [xterm.js](https://xtermjs.org/): the terminal.
 
-## Lizenz / License
+## License
 
-DevBench steht wahlweise unter der [MIT-Lizenz](LICENSE-MIT) oder der [Apache-Lizenz 2.0](LICENSE-APACHE).
-Beiträge werden, sofern nicht ausdrücklich anders angegeben, unter denselben beiden Lizenzen eingebracht.
+DevBench is © 2026 Moritz Schäfer and licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
 
-DevBench is licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
 Unless you explicitly state otherwise, any contribution you submit is dual-licensed as above, without additional terms.

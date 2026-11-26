@@ -2,7 +2,7 @@
 name = "devbench"
 version = "0.2.0"
 description = "Control center for home servers and their virtual machines"
-authors = ["DevBench contributors"]
+authors = ["Moritz Schäfer"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/MosesCommitsFraud/DevBench"
 edition = "2024"

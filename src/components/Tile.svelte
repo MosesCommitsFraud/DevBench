@@ -2,8 +2,7 @@
   import { hue, monogram } from "../lib/identity";
   import { theme } from "../lib/theme.svelte";
 
-  // A machine's or VM's monogram on a tint of its colour (like T3 Code's project monograms),
-  // with an optional status dot in the corner.
+  // A machine's or VM's monogram on a tint of its colour, with an optional status dot in the corner.
   let {
     name,
     color = "",
