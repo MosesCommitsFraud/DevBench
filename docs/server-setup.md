@@ -77,6 +77,22 @@ Für VMs mit virtueller Grafik (ohne GPU-Passthrough). Im Gast ist nichts nötig
 
 Den Port zeigt `virsh vncdisplay <vm>` an (`:0` = 5900, `:1` = 5901 …). Bei `autoport` kann er sich je nach Startreihenfolge ändern; für einen festen Port `port='5901' autoport='no'` setzen. In DevBench: `vnc_mode = "host"`, `vnc_host = "127.0.0.1"`, `vnc_port` = dieser Port.
 
+## Terminal und Desktop des Servers
+
+**Terminal:** Der Knopf *Terminal* an einer Maschine öffnet eine Shell über dieselbe SSH-Verbindung, an einer laufenden VM (mit `guest_ssh_user`) eine Shell im Gast. Auf dem Server ist dafür nichts nötig. Kopieren und Einfügen mit Strg+Umschalt+C / Strg+Umschalt+V.
+
+**Desktop:** Hat der Server eine grafische Oberfläche, zeigt DevBench sie über VNC an, genau wie bei VMs durch SSH weitergeleitet. Der VNC-Server soll nur auf `127.0.0.1` lauschen. In den Einstellungen unter *Desktop* den Port eintragen (`desktop_vnc_port`, 0 = kein Desktop-Knopf).
+
+Für einen Server ohne Monitor ist ein eigener virtueller Desktop am einfachsten, z. B. Xfce mit TigerVNC:
+
+```sh
+sudo apt install xfce4 xfce4-goodies tigervnc-standalone-server
+vncpasswd                                   # Passwort für die VNC-Anzeige
+vncserver :1 -localhost yes -geometry 1920x1080 -xstartup /usr/bin/startxfce4
+```
+
+Das ergibt Port 5901 (`:1`). Dauerhaft als Dienst: `sudo cp /usr/lib/systemd/system/vncserver@.service /etc/systemd/system/` (falls vorhanden) bzw. eine eigene `systemd`-Unit für den Benutzer anlegen. Auf einem Rechner mit GNOME-Desktop geht stattdessen `gnome-remote-desktop` (VNC-Backend) oder `wayvnc` (Sway/wlroots), jeweils auf localhost.
+
 ---
 
 ## English summary
@@ -85,3 +101,4 @@ Den Port zeigt `virsh vncdisplay <vm>` an (`:0` = 5900, `:1` = 5901 …). Bei `a
 - **libvirt:** add the SSH user to group `libvirt`. Buttons map to `virsh start/shutdown/reboot/destroy`. Empty `guest_address` uses `virsh domifaddr`, which only works out of the box on libvirt's NAT network; set it explicitly for bridged VMs.
 - **VNC, `guest` mode** (needed with GPU passthrough): OpenSSH server in the guest (Windows admins: key goes into `C:\ProgramData\ssh\administrators_authorized_keys`), a VNC server such as TightVNC listening on loopback only. A dummy display plug helps if no monitor is attached to the passed-through GPU.
 - **VNC, `host` mode:** QEMU's own VNC display with `listen='127.0.0.1'`; port from `virsh vncdisplay`.
+- **Terminal and desktop of the server:** *Terminal* opens a shell over SSH (on the machine, or in a running guest with `guest_ssh_user`); nothing to install. *Desktop* shows a VNC server running on the machine itself, forwarded through SSH: set `desktop_vnc_port` (0 hides the button). For a headless server, e.g. Xfce plus TigerVNC: `vncserver :1 -localhost yes -xstartup /usr/bin/startxfce4` gives port 5901.

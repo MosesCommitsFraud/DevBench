@@ -23,6 +23,8 @@ jump_host = ""                     # optional, like ProxyJump: [user@]host[:port
 mac = "00:11:22:33:44:55"          # MAC of the server's network card for Wake-on-LAN; "" hides the Wake button
 wol_broadcast = "192.0.2.255"      # broadcast address of the server's LAN (or 255.255.255.255)
 wol_port = 9                       # UDP port for the magic packet (9 or 7)
+desktop_vnc_port = 0               # VNC server showing this machine's own desktop, reached through SSH; 0 = no Desktop button
+desktop_vnc_host = ""              # where that VNC server listens, as seen from the machine; "" = 127.0.0.1
 # AI agents (MCP, see docs/agents.md). All off by default.
 agent_access = false               # agents may see this machine: status, wake, list VMs
 agent_exec = false                 # agents may run shell commands and read/write files here

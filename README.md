@@ -12,8 +12,10 @@ DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a
 
 - **Dashboard:** online/offline, uptime, CPU, RAM and disk per server; running state per VM.
 - **Buttons:** Wake-on-LAN, shut down / reboot the server (over SSH, via a narrow sudoers rule), start / shut down / reboot / force off VMs (`virsh` over SSH).
-- **Embedded VNC:** view and control a VM's desktop inside the app (noVNC). DevBench opens the SSH tunnel itself, in-process (via [russh](https://github.com/Eugeny/russh)), including jump hosts. No external tunnel, no separate VNC viewer.
-- **Files:** two-pane file manager between this PC, a server and a VM guest over SFTP: copy or move by button or drag and drop, drop files in from Explorer/Finder, transfers with progress and cancel.
+- **Terminal:** a shell on the server or inside a guest, in the app window (xterm.js over the same SSH connection).
+- **Embedded VNC:** view and control a VM's desktop, or the server's own desktop, inside the app (noVNC). DevBench opens the SSH tunnel itself, in-process (via [russh](https://github.com/Eugeny/russh)), including jump hosts. No external tunnel, no separate VNC viewer.
+- **Files:** one file browser for this PC, every server and every VM guest (SFTP): pick a system from the list, breadcrumbs, filter, sort, upload/download, copy/cut/paste across systems, drag rows onto a system, drop files in from Explorer/Finder; transfers with progress and cancel.
+- **Light and dark theme** from the logo colours, following the system or chosen in Settings.
 - **AI agents (MCP):** `devbench mcp` is an MCP server, so Claude and other agents can check status, wake machines, start VMs, run commands and edit files on the server or inside a guest, and take screenshots and drive mouse and keyboard in a VM. Everything is off until enabled per machine/VM; the app shows connected agents and logs every agent action. See [`docs/agents.md`](docs/agents.md).
 - **Nothing hardcoded:** all hosts live in a config file in your OS's app config folder, edited in the app's Settings screen; hosts can be imported from `~/.ssh/config`. See [`config.example.toml`](config.example.toml).
 
@@ -27,11 +29,14 @@ DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a
 
 ## Funktionen
 
-- **Dashboard** pro Server: erreichbar oder nicht, Laufzeit, CPU-, RAM- und Festplattenauslastung. Pro VM: läuft oder nicht.
+- **Dashboard** pro Server: erreichbar oder nicht, Betriebssystem, Prozessor, IP-Adresse, Laufzeit, CPU-Verlauf der letzten Minuten, Arbeitsspeicher, Festplatte und Netzwerk. Pro VM: Zustand, vCPUs, Arbeitsspeicher, IP-Adresse und CPU-Last.
+- **Terminal:** Shell auf dem Server oder in einer VM direkt im Fenster, über dieselbe SSH-Verbindung.
+- **Desktop des Servers:** hat der Server eine grafische Oberfläche mit VNC-Server, zeigt DevBench sie wie eine VM an, siehe [`docs/server-setup.md`](docs/server-setup.md#terminal-und-desktop-des-servers).
 - **Server:** Aufwecken (Wake-on-LAN), Herunterfahren, Neustarten.
 - **VMs (libvirt/KVM):** Starten, Herunterfahren (ACPI), Neustarten, Ausschalten erzwingen.
 - **VNC im Fenster:** Bildschirm einer VM mit Maus und Tastatur bedienen. DevBench baut die SSH-Verbindung selbst auf, auch über einen Sprung-Server (Jump Host) in den Gast. Kein `ssh -L` im Terminal, kein separates VNC-Programm.
-- **Dateien:** Dateimanager mit zwei Spalten zwischen diesem PC, einem Server und einer VM (SFTP), siehe [Dateien übertragen](#dateien-übertragen).
+- **Dateien:** ein Dateibrowser für diesen PC, alle Server und alle VMs (SFTP), siehe [Dateien übertragen](#dateien-übertragen).
+- **Hell und dunkel:** beide Designs aus den Logo-Farben; folgt dem System oder wird in den Einstellungen bzw. unten in der Seitenleiste gewählt.
 - **KI-Agenten:** Claude und andere Agenten können Server und VMs über MCP bedienen, siehe [unten](#steuerung-durch-ki-agenten-mcp).
 - **Mehrere Server**, jeder mit beliebig vielen VMs.
 - **Import aus `~/.ssh/config`:** vorhandene Host-Aliasse übernehmen; Benutzer, Port, Schlüssel und ProxyJump werden von dort gelesen, wenn sie in DevBench leer bleiben.
@@ -93,6 +98,7 @@ Die eigene Konfiguration gehört **nicht** ins Repository.
 | `mac` | MAC-Adresse für Wake-on-LAN; leer = kein Aufwecken-Knopf |
 | `wol_broadcast` | Broadcast-Adresse des Server-Netzes, z. B. `192.168.1.255` |
 | `wol_port` | UDP-Port für das Magic Packet, meist `9` |
+| `desktop_vnc_port`, `desktop_vnc_host` | VNC-Server mit dem Desktop des Servers selbst, durch SSH erreicht; `0` = kein Desktop-Knopf, Host leer = `127.0.0.1` |
 | `agent_access`, `agent_exec`, `agent_power` | Freigaben für KI-Agenten, standardmäßig `false`, siehe [`docs/agents.md`](docs/agents.md) |
 
 ### VMs (`[[machines.vms]]`)
@@ -150,13 +156,14 @@ Schritt für Schritt: [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
 
 ## Dateien übertragen
 
-Unter **Dateien** in der Seitenleiste stehen zwei Spalten nebeneinander. Jede zeigt wahlweise **Dieser PC**, einen Server oder eine VM (nur VMs mit eingetragenem `guest_ssh_user`). Die Übertragung läuft über SFTP durch dieselbe SSH-Verbindung, auf dem Server ist nichts zusätzlich nötig.
+Unter **Dateien** in der Seitenleiste steht links die Liste der Systeme: **Dieser PC**, jeder Server und darunter seine VMs (nur VMs mit eingetragenem `guest_ssh_user`). Ein Klick wählt das System, rechts erscheint sein Dateibrowser. DevBench merkt sich pro System den zuletzt geöffneten Ordner. Die Übertragung läuft über SFTP durch dieselbe SSH-Verbindung, auf dem Server ist nichts zusätzlich nötig.
 
-- **Navigieren:** Pfad ins Feld tippen und Enter drücken, oder über **Gehe zu** zum Home-Ordner, zu Laufwerken oder nach `/` springen. In Windows-Gästen sehen Pfade so aus: `/C:/Users/name`.
-- **Kopieren:** mit den Pfeil-Knöpfen zwischen den Spalten oder Zeilen in die andere Spalte ziehen. Mit gedrückter **Umschalttaste** wird verschoben statt kopiert.
-- **Aus dem Explorer/Finder:** Dateien auf eine Spalte ziehen, sie werden dorthin kopiert.
-- **Ordner:** hoch, neu laden, neuer Ordner, umbenennen (F2), löschen (Entf). Gelöschtes landet **nicht** im Papierkorb.
-- **Übertragungen** erscheinen in einer Liste mit Fortschritt und lassen sich abbrechen.
+- **Navigieren:** über die Pfadleiste (Klick auf einen Teil springt dorthin, Klick daneben oder Strg+L zum Eintippen), über **Orte** (Home, Desktop, Downloads, Laufwerke, `/`), Zurück (Alt+←) und Nach oben (Alt+↑). In Windows-Gästen sehen Pfade so aus: `/C:/Users/name`.
+- **Finden:** **Filtern** (Strg+F) blendet alles aus, was den Text nicht enthält; Klick auf eine Spaltenüberschrift sortiert.
+- **Hoch- und herunterladen:** auf einem Server oder in einer VM lädt **Hochladen** Dateien von diesem PC in den offenen Ordner, **Herunterladen** speichert die Auswahl im Downloads-Ordner. Dateien aus dem Explorer/Finder lassen sich auch einfach auf die Liste oder auf ein System ziehen.
+- **Zwischen Systemen:** **Kopieren** (Strg+C) oder **Ausschneiden** (Strg+X), anderes System wählen, Ordner öffnen, **Einfügen** (Strg+V). Oder Zeilen auf ein System in der Liste ziehen: sie werden in dessen zuletzt geöffneten Ordner kopiert (mit Umschalt verschoben). Innerhalb eines Systems verschiebt Ziehen auf einen Ordner (mit Umschalt kopiert).
+- **Ordner:** neu, umbenennen (F2), löschen (Entf). Gelöschtes landet **nicht** im Papierkorb.
+- **Übertragungen** erscheinen unten mit Fortschritt und lassen sich abbrechen.
 
 ## Steuerung durch KI-Agenten (MCP)
 
