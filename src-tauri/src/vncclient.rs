@@ -18,6 +18,8 @@ struct Frame {
     /// RGBA, row by row.
     pixels: Vec<u8>,
     last_update: Instant,
+    /// Rectangles received so far; 0 means no picture yet.
+    updates: u64,
 }
 
 impl Frame {
@@ -40,6 +42,7 @@ impl Frame {
             }
         }
         self.last_update = Instant::now();
+        self.updates += 1;
     }
 
     fn copy(&mut self, dx: usize, dy: usize, sx: usize, sy: usize, w: usize, h: usize) {
@@ -95,7 +98,7 @@ impl Screen {
             .finish()
             .map_err(|e| anyhow!("VNC: {e}"))?;
         let client = Arc::new(client);
-        let frame = Arc::new(Mutex::new(Frame { width: 0, height: 0, pixels: Vec::new(), last_update: Instant::now() }));
+        let frame = Arc::new(Mutex::new(Frame { width: 0, height: 0, pixels: Vec::new(), last_update: Instant::now(), updates: 0 }));
         let pump = tokio::spawn(pump(client.clone(), frame.clone()));
         let screen = Self { client, frame, pointer: Mutex::new((0, 0, 0)), pump, _conn: conn };
         // Wait for the first full picture.
@@ -103,11 +106,11 @@ impl Screen {
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let f = screen.frame.lock().await;
-            if f.width > 0 && f.last_update.elapsed() > Duration::from_millis(300) {
+            if f.updates > 0 && f.last_update.elapsed() > Duration::from_millis(400) {
                 break;
             }
-            if started.elapsed() > Duration::from_secs(10) {
-                bail!("the VNC server sent no picture within 10 s");
+            if started.elapsed() > Duration::from_secs(20) {
+                bail!("the VNC server sent no picture within 20 s");
             }
         }
         Ok(screen)

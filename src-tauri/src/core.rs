@@ -177,7 +177,7 @@ impl Core {
         self.pool.evict(&ep);
         match out.code {
             Some(0) | None => Ok(()),
-            Some(_) if out.stderr.contains("password") => bail!(
+            Some(_) if ["password", "authentication is required", "terminal is required"].iter().any(|m| out.stderr.contains(m)) => bail!(
                 "sudo asks for a password. Allow 'systemctl {verb}' without one (see docs/sudoers-devbench in the DevBench repository)."
             ),
             Some(c) => bail!("systemctl {verb} failed ({c}): {}", out.stderr.trim()),
