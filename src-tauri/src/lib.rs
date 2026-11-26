@@ -109,6 +109,11 @@ async fn fs_list(state: State<'_, AppState>, loc: files::Location, path: Option<
 }
 
 #[tauri::command]
+async fn fs_drives(state: State<'_, AppState>, loc: files::Location) -> CmdResult<Vec<files::Drive>> {
+    Ok(state.core.drives(&loc).await?)
+}
+
+#[tauri::command]
 async fn fs_mkdir(state: State<'_, AppState>, loc: files::Location, dir: String, name: String) -> CmdResult<()> {
     let fs = state.core.fs(&loc).await?;
     Ok(fs.mkdir(&fs.join(&dir, &name)).await?)
@@ -298,6 +303,7 @@ pub fn run() {
             activity,
             running_agents,
             fs_list,
+            fs_drives,
             fs_mkdir,
             fs_rename,
             fs_delete,

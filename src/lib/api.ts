@@ -207,6 +207,13 @@ export interface Listing {
   places: string[];
 }
 
+export interface Drive {
+  path: string;
+  label: string;
+  total: number;
+  free: number;
+}
+
 export interface Progress {
   id: string;
   current: string;
@@ -219,6 +226,7 @@ export interface Progress {
 
 export const files = {
   list: (loc: Location, path: string | null) => invoke<Listing>("fs_list", { loc, path }),
+  drives: (loc: Location) => invoke<Drive[]>("fs_drives", { loc }),
   mkdir: (loc: Location, dir: string, name: string) => invoke<void>("fs_mkdir", { loc, dir, name }),
   rename: (loc: Location, dir: string, path: string, name: string) => invoke<void>("fs_rename", { loc, dir, path, name }),
   remove: (loc: Location, paths: string[]) => invoke<void>("fs_delete", { loc, paths }),

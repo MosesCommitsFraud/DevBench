@@ -26,7 +26,7 @@
     ChevronDown,
     ChevronUp,
   } from "@lucide/svelte";
-  import { api, asAppError, files, newId, type FileEntry, type Listing, type Location, type Progress } from "../lib/api";
+  import { api, asAppError, files, newId, type Drive, type FileEntry, type Listing, type Location, type Progress } from "../lib/api";
   import { bytes } from "../lib/format";
   import { lang, t } from "../lib/i18n.svelte";
   import { live, store } from "../lib/store.svelte";
@@ -109,6 +109,8 @@
   let editingPath = $state(false);
   let pathInput = $state("");
   let localPlaces = $state<[string, string][]>([]);
+  /** Disks per system, fetched once per visit of a system. */
+  let drives = $state<Record<string, Drive[]>>({});
 
   let listEl: HTMLDivElement;
   let filterEl: HTMLInputElement;
@@ -161,9 +163,20 @@
       problem = "";
       filter = "";
       editingPath = false;
-      if (!sysOf(key)?.unavailable) void open(paths[key] ?? null, { push: false });
+      if (!sysOf(key)?.unavailable) {
+        void open(paths[key] ?? null, { push: false });
+        void loadDrives(key);
+      }
     });
   });
+
+  async function loadDrives(key: string) {
+    try {
+      drives[key] = await files.drives(locationOf(key));
+    } catch {
+      // the places still work; a failed listing shows its own error
+    }
+  }
 
   // A machine or VM that comes online while selected gets loaded
   $effect(() => {
@@ -249,12 +262,26 @@
     if (current === "local") {
       const names: Record<string, string> = { home: t("files.home"), desktop: t("files.desktop"), downloads: t("files.downloads"), documents: t("files.documents") };
       for (const [k, p] of localPlaces) out.push({ label: names[k] ?? k, path: p, home: k === "home" });
-      for (const p of listing?.places.slice(1) ?? []) out.push({ label: p, path: p, home: false });
     } else if (listing) {
-      listing.places.forEach((p, i) => out.push({ label: i === 0 ? t("files.home") : p, path: p, home: i === 0 }));
+      out.push({ label: t("files.home"), path: listing.places[0], home: true });
     }
     return out;
   });
+
+  /** Disks of the current system; without an answer yet, the roots the listing knows. */
+  const driveList = $derived.by(() => {
+    const known = drives[current];
+    if (known?.length) return known;
+    return (listing?.places.slice(1) ?? []).map((path) => ({ path, label: "", total: 0, free: 0 }));
+  });
+
+  function driveName(d: Drive): string {
+    if (d.label) return d.label;
+    if (d.path === "/") return t("files.systemDisk");
+    const win = /^\/?([A-Za-z]:)[\\/]?$/.exec(d.path);
+    if (win) return win[1];
+    return d.path.split(/[\\/]/).filter(Boolean).pop() ?? d.path;
+  }
 
   // ---- Actions ------------------------------------------------------------------------------
 
@@ -551,6 +578,25 @@
         {/each}
       </div>
     {/if}
+
+    {#if driveList.length}
+      <div class="group">
+        <span class="caption">{t("files.drives")}</span>
+        {#each driveList as d (d.path)}
+          {@const used = d.total ? 1 - d.free / d.total : 0}
+          <button class="sys drive" class:active={listing?.path === d.path} onclick={() => open(d.path)} title={d.path}>
+            <HardDrive size={16} strokeWidth={1.5} />
+            <span class="drive-text">
+              <span class="label">{driveName(d)}{#if d.label || d.path !== "/"}<span class="where mono">{d.path}</span>{/if}</span>
+              {#if d.total}
+                <span class="meter" class:hot={used > 0.9}><i style:transform="scaleX({used})"></i></span>
+                <span class="free">{t("files.freeOf", bytes(d.free), bytes(d.total))}</span>
+              {/if}
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </aside>
 
   <section class="browser">
@@ -774,6 +820,52 @@
   .sys.vm {
     margin-left: 14px;
     height: 30px;
+  }
+  .sys.drive {
+    height: auto;
+    min-height: 32px;
+    padding: 7px 8px;
+    align-items: flex-start;
+  }
+  .drive-text {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .drive-text .label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    line-height: 16px;
+  }
+  .where {
+    font-size: 10.5px;
+    color: var(--text-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .drive-text .meter {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .drive-text .meter i {
+    display: block;
+    height: 100%;
+    background: var(--text-3);
+    transform-origin: left;
+    transition: transform 600ms var(--ease);
+  }
+  .drive-text .meter.hot i {
+    background: var(--danger);
+  }
+  .free {
+    font-size: 11px;
+    color: var(--text-3);
   }
   .pc {
     width: 22px;

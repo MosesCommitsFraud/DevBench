@@ -37,6 +37,133 @@ pub struct Listing {
     pub places: Vec<String>,
 }
 
+/// A disk (or other mounted file system) to jump to in the file browser.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Drive {
+    /// Where it is mounted, as the file browser addresses it ("/data", "C:\\", "/C:/").
+    pub path: String,
+    /// Its volume label, empty if it has none.
+    pub label: String,
+    /// Size and free space in bytes, 0 if unknown.
+    pub total: u64,
+    pub free: u64,
+}
+
+/// File systems on disks (and network shares) worth a shortcut; leaves out /proc, tmpfs, snaps and the like.
+pub const LINUX_DRIVES: &str =
+    "findmnt -Pnb -o TARGET,SIZE,AVAIL,LABEL -t ext4,ext3,ext2,xfs,btrfs,zfs,f2fs,ntfs,ntfs3,fuseblk,vfat,exfat,nfs,nfs4,cifs";
+
+/// The same for a Windows guest (OpenSSH's default shell there is cmd): local and removable drives.
+pub const WINDOWS_DRIVES: &str = r#"powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2,3 } | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.DeviceID,$_.Size,$_.FreeSpace,$_.VolumeName }""#;
+
+/// Parses `findmnt -P` output. Boot partitions are left out: nothing to do there by hand.
+pub fn parse_linux_drives(out: &str) -> Vec<Drive> {
+    let mut v: Vec<Drive> = Vec::new();
+    for line in out.lines() {
+        let f = pairs(line);
+        let get = |k: &str| f.iter().find(|(n, _)| n == k).map(|(_, x)| x.clone()).unwrap_or_default();
+        let path = get("TARGET");
+        if path.is_empty() || path == "/boot" || path.starts_with("/boot/") || path.starts_with("/snap/") {
+            continue;
+        }
+        if v.iter().any(|d| d.path == path) {
+            continue;
+        }
+        v.push(Drive { path, label: get("LABEL"), total: get("SIZE").parse().unwrap_or(0), free: get("AVAIL").parse().unwrap_or(0) });
+    }
+    v
+}
+
+/// Parses the PowerShell line format `C:|size|free|label` into SFTP paths ("/C:/").
+pub fn parse_windows_drives(out: &str) -> Vec<Drive> {
+    out.lines()
+        .filter_map(|l| {
+            let mut f = l.trim().splitn(4, '|');
+            let id = f.next()?.trim();
+            if id.len() != 2 || !id.ends_with(':') {
+                return None;
+            }
+            Some(Drive {
+                path: format!("/{id}/"),
+                total: f.next().unwrap_or("").trim().parse().unwrap_or(0),
+                free: f.next().unwrap_or("").trim().parse().unwrap_or(0),
+                label: f.next().unwrap_or("").trim().to_string(),
+            })
+        })
+        .collect()
+}
+
+/// `KEY="value"` pairs of one `findmnt -P` line, with `\xNN` escapes decoded.
+fn pairs(line: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = line.trim();
+    while let Some(eq) = rest.find("=\"") {
+        let key = rest[..eq].trim().to_string();
+        let after = &rest[eq + 2..];
+        let Some(end) = after.find('"') else { break };
+        out.push((key, unescape(&after[..end])));
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+fn unescape(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && i + 3 < b.len() && b[i + 1] == b'x' {
+            if let Ok(x) = u8::from_str_radix(&s[i + 2..i + 4], 16) {
+                out.push(x);
+                i += 4;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Drives of this PC: on Windows every drive letter with its label and free space.
+pub fn local_drives() -> Vec<Drive> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetVolumeInformationW};
+        let mut v = Vec::new();
+        for c in b'A'..=b'Z' {
+            let path = format!("{}:\\", c as char);
+            if !Path::new(&path).exists() {
+                continue;
+            }
+            let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+            let (mut free, mut total) = (0u64, 0u64);
+            let mut name = [0u16; 261];
+            // SAFETY: `wide` is NUL-terminated and every out pointer is valid for the call.
+            unsafe {
+                GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, std::ptr::null_mut());
+                GetVolumeInformationW(
+                    wide.as_ptr(),
+                    name.as_mut_ptr(),
+                    name.len() as u32,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    0,
+                );
+            }
+            let len = name.iter().position(|&x| x == 0).unwrap_or(0);
+            v.push(Drive { path, label: String::from_utf16_lossy(&name[..len]), total, free });
+        }
+        v
+    }
+    #[cfg(not(windows))]
+    {
+        vec![Drive { path: "/".into(), label: String::new(), total: 0, free: 0 }]
+    }
+}
+
 /// One side of a file operation.
 pub enum Fs {
     Local,
@@ -402,5 +529,20 @@ mod tests {
         assert_eq!(remote_parent("/"), None);
         assert_eq!(remote_parent("/C:/Users"), Some("/C:".into()));
         assert_eq!(remote_name("/home/u/file.txt"), "file.txt");
+    }
+
+    #[test]
+    fn drives() {
+        let out = "TARGET=\"/\" SIZE=\"1000\" AVAIL=\"800\" LABEL=\"\"\n\
+                   TARGET=\"/boot/efi\" SIZE=\"10\" AVAIL=\"9\" LABEL=\"\"\n\
+                   TARGET=\"/media/u/My\\x20Disk\" SIZE=\"500\" AVAIL=\"100\" LABEL=\"My\\x20Disk\"\n";
+        let d = parse_linux_drives(out);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0], Drive { path: "/".into(), label: "".into(), total: 1000, free: 800 });
+        assert_eq!(d[1].path, "/media/u/My Disk");
+        assert_eq!(d[1].label, "My Disk");
+        let w = parse_windows_drives("C:|100|40|System\r\nD:|200|150|\r\n");
+        assert_eq!(w[0], Drive { path: "/C:/".into(), label: "System".into(), total: 100, free: 40 });
+        assert_eq!(w[1].label, "");
     }
 }

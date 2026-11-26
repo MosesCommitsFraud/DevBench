@@ -15,7 +15,7 @@ use std::time::Instant;
 use russh_sftp::client::SftpSession;
 
 use crate::config::{self, Config, Machine, Vm, VncMode};
-use crate::files::{Fs, Location, Progress, Transfer};
+use crate::files::{self, Drive, Fs, Location, Progress, Transfer};
 use crate::ssh::{self, Conn, ExecOutput, sh_quote};
 use crate::sshconf::{self, Endpoint};
 use crate::status::{self, MachineStatus};
@@ -323,6 +323,21 @@ impl Core {
         let s = Arc::new(SftpSession::new(ch.into_stream()).await.map_err(|e| anyhow!("SFTP: {e}"))?);
         cache.insert(key, (conn, s.clone()));
         Ok(Fs::Remote(s))
+    }
+
+    /// The disks of this PC or of a machine or guest, with label and free space. A Linux system
+    /// answers `findmnt`; when that fails the guest is asked as a Windows system.
+    pub async fn drives(&self, loc: &Location) -> Result<Vec<Drive>> {
+        let Location::Remote { machine, vm } = loc else {
+            return Ok(tokio::task::spawn_blocking(files::local_drives).await?);
+        };
+        let ep = self.target(machine, vm.as_deref()).await?;
+        let out = self.pool.exec(&ep, files::LINUX_DRIVES, Duration::from_secs(15)).await?;
+        if out.code == Some(0) {
+            return Ok(files::parse_linux_drives(&out.stdout));
+        }
+        let out = self.pool.exec(&ep, files::WINDOWS_DRIVES, Duration::from_secs(30)).await?;
+        Ok(if out.code == Some(0) { files::parse_windows_drives(&out.stdout) } else { Vec::new() })
     }
 
     /// Drops a cached SFTP session after an error, so the next call opens a fresh one.
