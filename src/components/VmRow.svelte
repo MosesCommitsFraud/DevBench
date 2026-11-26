@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Monitor, Play, SquareTerminal, Ellipsis, Square, RotateCcw, Power, FolderOpen } from "@lucide/svelte";
+  import { Monitor, Play, SquareTerminal, Ellipsis, Square, RotateCcw, Power, FolderOpen, EthernetPort, ArrowUpRight } from "@lucide/svelte";
   import type { Machine, Vm, VmStatus } from "../lib/api";
-  import { gb } from "../lib/format";
+  import { bytes, duration, gb } from "../lib/format";
+  import { guests } from "../lib/guests.svelte";
+  import { browse, forwardsOf, openPorts } from "../lib/ports.svelte";
   import { t, vmStateLabel } from "../lib/i18n.svelte";
   import { previewKey, previews } from "../lib/previews.svelte";
   import Menu from "./Menu.svelte";
@@ -36,13 +38,40 @@
   const canScreen = $derived(running && !pending && (isDesktop || vm!.vnc_mode !== "none"));
   const canShell = $derived(running && !pending && (isDesktop || !!vm!.guest_ssh_user));
   const preview = $derived(previews[previewKey(machine.id, vm?.id ?? null)]);
+  const forwards = $derived(vm ? forwardsOf(machine.id, vm.id) : []);
+  const guest = $derived(vm && running ? (guests[`${machine.id}/${vm.id}`]?.stats ?? null) : null);
+  const ratio = (used: number, total: number) => (total > 0 ? Math.max(0, Math.min(1, used / total)) : 0);
+  const cells = $derived.by(() => {
+    if (!guest) return [];
+    const out: { label: string; value: string; ratio: number; detail: string }[] = [];
+    if (vs?.cpu_percent != null) out.push({ label: "CPU", value: `${Math.round(vs.cpu_percent)} %`, ratio: vs.cpu_percent / 100, detail: t("vm.vcpus", vs.vcpus) });
+    const memUsed = guest.mem_total - guest.mem_available;
+    if (guest.mem_total) out.push({ label: t("machine.memory"), value: bytes(memUsed), ratio: ratio(memUsed, guest.mem_total), detail: t("machine.ofTotal", bytes(guest.mem_total)) });
+    if (guest.disk_total)
+      out.push({
+        label: guest.disk_name || t("machine.disk"),
+        value: bytes(guest.disk_total - guest.disk_free),
+        ratio: ratio(guest.disk_total - guest.disk_free, guest.disk_total),
+        detail: t("machine.freeOf", bytes(guest.disk_free), bytes(guest.disk_total)),
+      });
+    const g = guest.gpu;
+    if (g)
+      out.push({
+        label: "GPU",
+        value: `${Math.round(g.util)} %${g.temp != null ? ` · ${Math.round(g.temp)} °C` : ""}`,
+        ratio: g.util / 100,
+        detail: `${g.name.replace(/^NVIDIA (GeForce )?/, "")} · VRAM ${bytes(g.mem_used)} / ${bytes(g.mem_total)}`,
+      });
+    return out;
+  });
   const dot = $derived(
     pending || vs?.state === "in shutdown" || vs?.state === "paused" ? "busy" : vs?.state === "crashed" ? "error" : running ? "on" : "",
   );
   const stateText = $derived(pending ? `${pending} …` : isDesktop ? t("vm.desktopRow") : vs ? vmStateLabel(vs.state) : "–");
+  const hasGuest = $derived(!!(vm && running && guests[`${machine.id}/${vm.id}`]?.stats));
   const facts = $derived(
     vm && vs
-      ? [vs.vcpus ? t("vm.vcpus", vs.vcpus) : "", vs.memory ? gb(vs.memory) : "", vs.ip, running && vs.cpu_percent != null ? `CPU ${Math.round(vs.cpu_percent)} %` : ""].filter(Boolean)
+      ? [vs.vcpus ? t("vm.vcpus", vs.vcpus) : "", vs.memory ? gb(vs.memory) : "", vs.ip, running && vs.cpu_percent != null && !hasGuest ? `CPU ${Math.round(vs.cpu_percent)} %` : ""].filter(Boolean)
       : isDesktop
         ? [`VNC :${machine.desktop_vnc_port}`]
         : [vm?.libvirt_name ?? ""],
@@ -81,7 +110,17 @@
     <div class="sub">
       <span class="state">{#if dot}<span class="dot {dot}"></span>{/if}{stateText}</span>
       {#each facts as f (f)}<span class="fact mono">{f}</span>{/each}
+      {#if guest?.os}<span class="fact">{guest.os} · {t("vm.upFor", duration(guest.uptime_secs))}</span>{/if}
     </div>
+    {#if forwards.length}
+      <div class="forwards">
+        {#each forwards as f (f.id)}
+          <button class="chip mono" class:broken={!!f.error} title={f.error ?? t("ports.openAt", f.local_port)} onclick={() => browse(f)}>
+            :{f.remote_port}{#if f.local_port !== f.remote_port}<span class="arrow">→ {f.local_port}</span>{/if}<ArrowUpRight size={11} strokeWidth={2} />
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="actions">
@@ -102,6 +141,9 @@
         {/if}
       {/if}
       {#if vm}
+        <button class="btn icon ghost" title={t("ports.title")} aria-label={t("ports.title")} onclick={() => openPorts(machine.id, vm.id)}>
+          <EthernetPort size={15} strokeWidth={1.5} />
+        </button>
         <Menu label={t("vm.more")}>
           {#snippet trigger()}<Ellipsis size={15} strokeWidth={1.5} />{/snippet}
           <button disabled={busy.shutdown} onclick={() => onAction?.("shutdown")}><Square size={15} strokeWidth={1.5} />{t("vm.shutdown")}</button>
@@ -111,6 +153,19 @@
       {/if}
     {/if}
   </div>
+
+  {#if cells.length}
+    <div class="guest">
+      {#each cells as c (c.label)}
+        <div class="cell" class:hot={c.ratio > 0.9}>
+          <span class="eyebrow">{c.label}</span>
+          <span class="value mono">{c.value}</span>
+          <span class="meter"><i style:transform="scaleX({Math.max(0, Math.min(1, c.ratio))})"></i></span>
+          <span class="detail">{c.detail}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -226,5 +281,74 @@
     display: flex;
     align-items: center;
     gap: 4px;
+  }
+  .forwards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 6px 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--sunken);
+    color: var(--text-2);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .chip:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+  .chip.broken {
+    color: var(--danger);
+  }
+  .chip .arrow {
+    color: var(--text-3);
+  }
+  .guest {
+    grid-column: 2 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px 20px;
+    padding: 2px 0 2px;
+  }
+  .cell {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+  .cell .value {
+    font-size: 13px;
+    color: var(--text);
+  }
+  .cell .meter {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .cell .meter i {
+    display: block;
+    height: 100%;
+    background: var(--text-3);
+    transform-origin: left;
+    transition: transform 600ms var(--ease);
+  }
+  .cell.hot .meter i {
+    background: var(--danger);
+  }
+  .cell .detail {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

@@ -112,12 +112,14 @@ fn unescape(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'\\' && i + 3 < b.len() && b[i + 1] == b'x' {
-            if let Ok(x) = u8::from_str_radix(&s[i + 2..i + 4], 16) {
-                out.push(x);
-                i += 4;
-                continue;
-            }
+        if b[i] == b'\\'
+            && i + 3 < b.len()
+            && b[i + 1] == b'x'
+            && let Ok(x) = u8::from_str_radix(&s[i + 2..i + 4], 16)
+        {
+            out.push(x);
+            i += 4;
+            continue;
         }
         out.push(b[i]);
         i += 1;

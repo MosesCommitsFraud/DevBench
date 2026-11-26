@@ -4,13 +4,17 @@
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
   import { ArrowLeft, RefreshCw, Maximize, Minimize, ClipboardPaste } from "@lucide/svelte";
-  import { api, type Machine, type Vm } from "../lib/api";
+  import { api, type Machine, type SetupStep, type Vm } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { run } from "../lib/ui.svelte";
   import { theme, token } from "../lib/theme.svelte";
 
-  // A shell on the machine (vm null) or in a guest, over SSH, inside the window.
-  let { machine, vm, onClose }: { machine: Machine; vm: Vm | null; onClose: () => void } = $props();
+  // A shell on the machine (vm null) or in a guest, over SSH, inside the window. With `step`
+  // the first connection runs that setup step's script (sudo asks for the password here);
+  // reconnecting opens a plain shell.
+  let { machine, vm, step = null, onClose }: { machine: Machine; vm: Vm | null; step?: SetupStep | null; onClose: () => void } = $props();
+  // svelte-ignore state_referenced_locally
+  let pendingStep: SetupStep | null = step;
 
   let root: HTMLDivElement;
   let host: HTMLDivElement;
@@ -63,7 +67,9 @@
     fit!.fit();
     let url: string;
     try {
-      url = (await run(() => api.termOpen(machine.id, vm?.id ?? null, term!.cols, term!.rows), true)).url;
+      const s = pendingStep;
+      pendingStep = null;
+      url = (await run(() => api.termOpen(machine.id, vm?.id ?? null, term!.cols, term!.rows, s), true)).url;
     } catch (e) {
       phase = "closed";
       problem = (e as { message?: string }).message ?? String(e);

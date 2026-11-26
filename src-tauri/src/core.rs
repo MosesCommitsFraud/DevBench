@@ -21,6 +21,7 @@ use crate::sshconf::{self, Endpoint};
 use crate::status::{self, MachineStatus};
 use crate::forward;
 use crate::guest;
+use crate::server;
 use crate::wol;
 
 /// (rx, tx) byte counters and when they were read.
@@ -325,6 +326,16 @@ impl Core {
         }
     }
 
+    /// What DevBench needs on a Linux server, what is there, and how many updates wait.
+    pub async fn server_check(&self, machine: &str) -> Result<server::ServerCheck> {
+        let (_, ep) = self.machine(machine)?;
+        let out = self.pool.exec(&ep, server::CHECK, Duration::from_secs(60)).await?;
+        if out.code != Some(0) {
+            bail!("server check: {}", out.stderr.trim());
+        }
+        Ok(server::parse(&out.stdout))
+    }
+
     /// What a running guest reports about itself (needs its guest SSH user).
     pub async fn guest_stats(&self, machine: &str, vm: &str) -> Result<guest::GuestStats> {
         let ep = self.target(machine, Some(vm)).await?;
@@ -460,7 +471,15 @@ impl Core {
     }
 
     /// An interactive shell with a terminal on the machine, or in a guest when `vm` is given.
-    pub async fn shell_channel(&self, machine: &str, vm: Option<&str>, cols: u32, rows: u32) -> Result<(Arc<Conn>, Channel<Msg>, String)> {
+    /// With `command`, the terminal runs that instead of the login shell.
+    pub async fn shell_channel(
+        &self,
+        machine: &str,
+        vm: Option<&str>,
+        cols: u32,
+        rows: u32,
+        command: Option<&str>,
+    ) -> Result<(Arc<Conn>, Channel<Msg>, String)> {
         let (m, _) = self.machine(machine)?;
         let title = match vm {
             Some(v) => format!("{} · {}", m.vm(v)?.name, m.name),
@@ -474,7 +493,10 @@ impl Core {
             match conn.handle.channel_open_session().await {
                 Ok(ch) => {
                     ch.request_pty(false, "xterm-256color", cols.max(20), rows.max(5), 0, 0, &[]).await?;
-                    ch.request_shell(false).await?;
+                    match command {
+                        Some(c) => ch.exec(false, c).await?,
+                        None => ch.request_shell(false).await?,
+                    }
                     return Ok((conn, ch, title));
                 }
                 Err(e) => {

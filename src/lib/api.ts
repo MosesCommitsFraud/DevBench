@@ -78,6 +78,60 @@ export interface MachineStatus {
   vms: VmStatus[];
 }
 
+export interface ForwardInfo {
+  id: string;
+  machine: string;
+  vm: string | null;
+  remote_host: string;
+  remote_port: number;
+  local_port: number;
+  connections: number;
+  error: string | null;
+}
+
+export interface ListenPort {
+  port: number;
+  host: string;
+  process: string;
+}
+
+export interface Gpu {
+  name: string;
+  util: number;
+  mem_used: number;
+  mem_total: number;
+  temp: number | null;
+}
+
+export interface GuestStats {
+  windows: boolean;
+  os: string;
+  uptime_secs: number;
+  mem_total: number;
+  mem_available: number;
+  disk_name: string;
+  disk_total: number;
+  disk_free: number;
+  gpu: Gpu | null;
+}
+
+export interface ServerPart {
+  id: "libvirt" | "power" | "desktop";
+  ok: boolean;
+  detail: string;
+}
+
+export interface ServerCheck {
+  parts: ServerPart[];
+  updates: number;
+  security_updates: number;
+  snap_updates: number;
+  reboot_required: boolean;
+  apt: boolean;
+}
+
+export type SetupStep = "updates" | "libvirt" | "power" | "desktop";
+
 export interface SshHostEntry {
   alias: string;
   host_name: string;
@@ -132,9 +186,19 @@ export const api = {
   trustHostKey: (host: string, port: number, key: string) => invoke<void>("trust_host_key", { host, port, key }),
   /** A VM's screen, or the machine's own desktop when vmId is null. */
   vncOpen: (machineId: string, vmId: string | null) => invoke<{ url: string; title: string }>("vnc_open", { machineId, vmId }),
-  termOpen: (machineId: string, vmId: string | null, cols: number, rows: number) =>
-    invoke<{ url: string; title: string }>("term_open", { machineId, vmId, cols, rows }),
+  /** A shell, or with `step` the script of a setup step / the updates (machines only). */
+  termOpen: (machineId: string, vmId: string | null, cols: number, rows: number, step: SetupStep | null = null) =>
+    invoke<{ url: string; title: string }>("term_open", { machineId, vmId, cols, rows, step }),
+  serverCheck: (machineId: string) => invoke<ServerCheck>("server_check", { machineId }),
+  setupScript: (step: SetupStep) => invoke<string | null>("setup_script", { step }),
   localPlaces: () => invoke<[string, string][]>("local_places"),
+  portForwards: () => invoke<ForwardInfo[]>("port_forwards"),
+  /** Forwards a port of a machine (or guest) to 127.0.0.1 here; localPort null = same number if free. */
+  portForwardOpen: (machineId: string, vmId: string | null, port: number, host: string | null, localPort: number | null) =>
+    invoke<ForwardInfo>("port_forward_open", { machineId, vmId, port, host, localPort }),
+  portForwardClose: (id: string) => invoke<void>("port_forward_close", { id }),
+  listeningPorts: (machineId: string, vmId: string | null) => invoke<ListenPort[]>("listening_ports", { machineId, vmId }),
+  guestStats: (machineId: string, vmId: string) => invoke<GuestStats>("guest_stats", { machineId, vmId }),
   /** PNG data URL of a VM's screen, or of the machine's desktop when vmId is null. */
   screenPreview: (machineId: string, vmId: string | null) => invoke<string>("screen_preview", { machineId, vmId }),
   screenPreviewStop: () => invoke<void>("screen_preview_stop"),

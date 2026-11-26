@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { Power, RotateCcw, Zap, KeyRound, SquareTerminal, Cpu, MemoryStick, HardDrive, ArrowDownUp, FolderOpen, Ellipsis } from "@lucide/svelte";
-  import { api, type Machine, type Vm } from "../lib/api";
+  import { Power, RotateCcw, Zap, KeyRound, SquareTerminal, Cpu, MemoryStick, HardDrive, ArrowDownUp, FolderOpen, Ellipsis, EthernetPort, ArrowUpRight, Wrench, ArrowUpCircle } from "@lucide/svelte";
+  import { api, type Machine, type SetupStep, type Vm } from "../lib/api";
+  import { pendingUpdates, servers } from "../lib/server.svelte";
+  import SetupDialog from "./SetupDialog.svelte";
   import { bytes, duration, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { boost, live, poll } from "../lib/store.svelte";
   import { askHostKey, confirm, notify, run } from "../lib/ui.svelte";
+  import { browse, forwardsOf, openPorts } from "../lib/ports.svelte";
   import Menu from "./Menu.svelte";
   import Sketch from "./Sketch.svelte";
   import Tile from "./Tile.svelte";
@@ -16,11 +19,15 @@
     onFiles,
   }: {
     machine: Machine;
-    onOpen: (kind: "screen" | "terminal", vm: Vm | null) => void;
+    onOpen: (kind: "screen" | "terminal", vm: Vm | null, step?: SetupStep | null) => void;
     onFiles: (vm: Vm | null) => void;
   } = $props();
 
   const l = $derived(live(machine.id));
+  const forwards = $derived(forwardsOf(machine.id, null));
+  let setupOpen = $state(false);
+  const updates = $derived(pendingUpdates(machine.id));
+  const missing = $derived(servers[machine.id]?.check?.parts.filter((p) => !p.ok).length ?? 0);
   const st = $derived(l.status);
   const online = $derived(!!st?.online);
   const hostKeyError = $derived(l.error && l.error.kind !== "error" ? l.error : null);
@@ -147,14 +154,28 @@
       <div class="sub">
         <span class="state">{#if dot}<span class="dot {dot}"></span>{/if}{status}</span>
         {#each facts as f (f)}<span class="fact mono">{f}</span>{/each}
+        {#each forwards as f (f.id)}
+          <button class="chip mono" class:broken={!!f.error} title={f.error ?? t("ports.openAt", f.local_port)} onclick={() => browse(f)}>
+            :{f.remote_port}{#if f.local_port !== f.remote_port}<span class="arrow">→ {f.local_port}</span>{/if}<ArrowUpRight size={11} strokeWidth={2} />
+          </button>
+        {/each}
       </div>
     </div>
     <div class="actions">
       {#if online}
         <button class="btn" onclick={() => onOpen("terminal", null)}><SquareTerminal size={14} strokeWidth={1.75} />{t("machine.terminal")}</button>
         <button class="btn" onclick={() => onFiles(null)}><FolderOpen size={14} strokeWidth={1.75} />{t("nav.files")}</button>
+        <button class="btn" onclick={() => openPorts(machine.id, null)}><EthernetPort size={14} strokeWidth={1.75} />{t("ports.title")}</button>
+        {#if updates}
+          <button class="btn updates" title={t("setup.title")} onclick={() => (setupOpen = true)}>
+            <ArrowUpCircle size={14} strokeWidth={1.75} />{t("setup.updatesShort", updates)}
+          </button>
+        {/if}
         <Menu label={t("machine.power")}>
           {#snippet trigger()}<Ellipsis size={15} strokeWidth={1.5} />{/snippet}
+          <button onclick={() => (setupOpen = true)}>
+            <Wrench size={15} strokeWidth={1.5} />{t("setup.title")}{#if missing}<span class="badge">{missing}</span>{/if}
+          </button>
           <button disabled={busy.reboot} onclick={() => power("reboot")}><RotateCcw size={15} strokeWidth={1.5} />{t("machine.reboot")}</button>
           <button class="danger" disabled={busy.poweroff} onclick={() => power("poweroff")}><Power size={15} strokeWidth={1.5} />{t("machine.poweroff")}</button>
         </Menu>
@@ -225,7 +246,56 @@
   {/if}
 </section>
 
+{#if setupOpen}
+  <SetupDialog
+    {machine}
+    onClose={() => (setupOpen = false)}
+    onRun={(step) => {
+      setupOpen = false;
+      onOpen("terminal", null, step);
+    }}
+  />
+{/if}
+
 <style>
+  .updates {
+    color: var(--busy);
+  }
+  .badge {
+    margin-left: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--raised);
+    color: var(--text-2);
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 6px 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--sunken);
+    color: var(--text-2);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .chip:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+  .chip.broken {
+    color: var(--danger);
+  }
+  .chip .arrow {
+    color: var(--text-3);
+  }
   .machine {
     display: grid;
     gap: 10px;

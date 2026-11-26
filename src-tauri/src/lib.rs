@@ -8,6 +8,7 @@ mod error;
 mod files;
 mod forward;
 mod guest;
+mod server;
 mod mcp;
 mod ssh;
 mod sshconf;
@@ -241,11 +242,36 @@ async fn screen_preview_stop(state: State<'_, AppState>) -> CmdResult<()> {
 
 /// Opens a shell with a terminal on the machine or in a guest. The WebSocket carries the
 /// terminal's bytes as binary messages; a text message `{"cols":80,"rows":24}` resizes it.
+/// With `step` (a setup step or "updates", machines only), the terminal runs that step's script.
 #[tauri::command]
-async fn term_open(state: State<'_, AppState>, machine_id: String, vm_id: Option<String>, cols: u32, rows: u32) -> CmdResult<VncTarget> {
-    let (conn, channel, title) = state.core.shell_channel(&machine_id, vm_id.as_deref(), cols, rows).await?;
+async fn term_open(
+    state: State<'_, AppState>,
+    machine_id: String,
+    vm_id: Option<String>,
+    cols: u32,
+    rows: u32,
+    step: Option<String>,
+) -> CmdResult<VncTarget> {
+    let command = match step.as_deref() {
+        None => None,
+        Some(_) if vm_id.is_some() => return Err(anyhow::anyhow!("setup steps run on machines, not in guests").into()),
+        Some(s) => Some(server::terminal_command(s).ok_or_else(|| anyhow::anyhow!("unknown setup step '{s}'"))?),
+    };
+    let (conn, channel, title) = state.core.shell_channel(&machine_id, vm_id.as_deref(), cols, rows, command.as_deref()).await?;
     let url = state.bridge.register(conn, channel, vnc::Kind::Terminal).await?;
     Ok(VncTarget { url, title })
+}
+
+/// What DevBench needs on a server, what is there, and the waiting updates.
+#[tauri::command]
+async fn server_check(state: State<'_, AppState>, machine_id: String) -> CmdResult<server::ServerCheck> {
+    Ok(state.core.server_check(&machine_id).await?)
+}
+
+/// The script behind a setup step, to show before it runs.
+#[tauri::command]
+fn setup_script(step: String) -> Option<String> {
+    server::script(&step).map(String::from)
 }
 
 #[tauri::command]
@@ -352,6 +378,8 @@ pub fn run() {
             port_forward_close,
             listening_ports,
             guest_stats,
+            server_check,
+            setup_script,
             fs_mkdir,
             fs_rename,
             fs_delete,

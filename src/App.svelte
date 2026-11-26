@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Server, Activity, Settings, FolderOpen, Sun, Moon, Search, SquareTerminal, Monitor, Play, Zap, Palette } from "@lucide/svelte";
-  import { api, type Machine, type Vm } from "./lib/api";
+  import { api, type Machine, type SetupStep, type Vm } from "./lib/api";
+  import { checkServer, startServerChecks } from "./lib/server.svelte";
   import { t } from "./lib/i18n.svelte";
   import { live, loadConfig, startPolling, store, wakeAll } from "./lib/store.svelte";
   import { notify, run } from "./lib/ui.svelte";
   import { theme, toggleTheme } from "./lib/theme.svelte";
   import { initUpdates, updates } from "./lib/updater.svelte";
   import { wantPreviews } from "./lib/previews.svelte";
+  import { wantGuests } from "./lib/guests.svelte";
+  import { startForwards } from "./lib/ports.svelte";
+  import PortsDialog from "./components/PortsDialog.svelte";
   import MachinePanel from "./components/MachinePanel.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import ActivityView from "./components/ActivityView.svelte";
@@ -23,7 +27,7 @@
   type View = "machines" | "files" | "activity" | "settings";
   let view = $state<View>("machines");
   /** A screen (VNC) or terminal covering the window; vm null = the machine itself. */
-  let session = $state<{ kind: "screen" | "terminal"; machine: Machine; vm: Vm | null } | null>(null);
+  let session = $state<{ kind: "screen" | "terminal"; machine: Machine; vm: Vm | null; step?: SetupStep | null } | null>(null);
   let ready = $state(false);
   let palette = $state(false);
 
@@ -34,18 +38,22 @@
     ready = true;
     startPolling();
     void initUpdates();
+    void startForwards(store.config.machines.map((m) => m.id));
+    startServerChecks();
   });
 
   // Screen pictures only while the dashboard is in front
   $effect(() => {
     wantPreviews(ready && view === "machines" && !session);
+    wantGuests(ready && view === "machines" && !session);
   });
 
-  function open(kind: "screen" | "terminal", machine: Machine, vm: Vm | null) {
-    session = { kind, machine, vm };
+  function open(kind: "screen" | "terminal", machine: Machine, vm: Vm | null, step: SetupStep | null = null) {
+    session = { kind, machine, vm, step };
     store.vncOpen = kind === "screen";
   }
   function closeSession() {
+    if (session?.step) void checkServer(session.machine.id);
     session = null;
     store.vncOpen = false;
     wakeAll();
@@ -182,7 +190,7 @@
           <div class="machines">
             {#each store.config.machines as m (m.id)}
               <div id="m-{m.id}">
-                <MachinePanel machine={m} onOpen={(kind, vm) => open(kind, m, vm)} onFiles={(vm) => openFiles(m, vm)} />
+                <MachinePanel machine={m} onOpen={(kind, vm, step) => open(kind, m, vm, step)} onFiles={(vm) => openFiles(m, vm)} />
               </div>
             {/each}
           </div>
@@ -201,10 +209,11 @@
 {#if session?.kind === "screen"}
   <VncView machine={session.machine} vm={session.vm} onClose={closeSession} />
 {:else if session?.kind === "terminal"}
-  <TermView machine={session.machine} vm={session.vm} onClose={closeSession} />
+  <TermView machine={session.machine} vm={session.vm} step={session.step ?? null} onClose={closeSession} />
 {/if}
 
 <CommandPalette bind:open={palette} {commands} />
+<PortsDialog />
 <Overlays />
 
 <style>

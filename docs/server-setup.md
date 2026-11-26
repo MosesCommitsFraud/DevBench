@@ -2,7 +2,9 @@
 
 *English summary at the end.*
 
-DevBench installiert nichts auf dem Server. Es meldet sich per SSH an, liest den Zustand und führt ein paar Befehle aus. Diese Seite beschreibt, was auf Server und VMs vorhanden sein muss.
+DevBench meldet sich per SSH an, liest den Zustand und führt ein paar Befehle aus. Diese Seite beschreibt, was auf Server und VMs vorhanden sein muss.
+
+**Einfacher Weg (apt, also Debian/Ubuntu):** Im Menü (⋯) des Servers öffnet **Einrichten & Updates** eine Übersicht: KVM/libvirt, die Regel zum Herunterfahren und der virtuelle Desktop, jeweils mit Zustand, dazu die wartenden Paket- und Snap-Updates. **Einrichten** bzw. **Aktualisieren** führt die Schritte im Terminal von DevBench aus. Dort fragt sudo selbst nach dem Passwort; DevBench sieht es nicht und speichert es nicht. Die Befehle jedes Schritts lassen sich vorher anzeigen. Sie entsprechen den Anleitungen weiter unten. Ohne diesen Klick installiert DevBench nichts.
 
 ## Server (Linux)
 
@@ -137,6 +139,7 @@ Hat der Rechner später einen echten Desktop (z. B. Ubuntu Desktop mit GNOME), g
 
 ## English summary
 
+- **Setup & updates (apt):** the server's menu → *Setup & updates* checks libvirt, the shutdown rule and the virtual desktop, counts package and snap updates, and runs the missing steps or the updates in DevBench's terminal, where sudo asks for the password itself. DevBench installs nothing without that click.
 - **Server:** OpenSSH with key auth, Linux with `/proc`. Shut down/reboot need the sudoers drop-in in [`sudoers-devbench`](sudoers-devbench). Wake-on-LAN: [wake-on-lan.md](wake-on-lan.md). Unknown host keys are shown with their fingerprint and must be confirmed; changed keys are refused.
 - **libvirt:** add the SSH user to group `libvirt`. Buttons map to `virsh start/shutdown/reboot/destroy`. Empty `guest_address` uses `virsh domifaddr`, which only works out of the box on libvirt's NAT network; set it explicitly for bridged VMs.
 - **VNC, `guest` mode** (needed with GPU passthrough): OpenSSH server in the guest (Windows admins: key goes into `C:\ProgramData\ssh\administrators_authorized_keys`), a VNC server such as TightVNC listening on loopback only. A dummy display plug helps if no monitor is attached to the passed-through GPU.

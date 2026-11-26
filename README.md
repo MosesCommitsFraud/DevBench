@@ -8,8 +8,10 @@ A desktop app that is the control center for your home servers and their virtual
 
 ## Features
 
-- **Dashboard** per server: online or not, operating system, IP address, uptime, CPU, memory, disk and network traffic. Per VM: state, vCPUs, memory, IP address, CPU load and a small live picture of its screen.
+- **Dashboard** per server: online or not, operating system, IP address, uptime, CPU, memory, disk and network traffic. Per VM: state, vCPUs, memory, IP address, CPU load and a small live picture of its screen; for a running guest with SSH also what it reports itself (system, uptime, memory, system disk and, with an NVIDIA card, GPU load, VRAM and temperature), Windows or Linux.
 - **Server:** wake (Wake-on-LAN), shut down, restart.
+- **Setup & updates:** DevBench checks what it needs on a server (KVM/libvirt, the shutdown rule, the virtual desktop) and how many package updates wait; it sets up what is missing and installs updates in its terminal, where sudo asks for the password itself. See [Setting up a server](#setting-up-a-server).
+- **Port forwarding:** forward a port of a server or VM (a dev server on `:3000`, say) to `localhost` on this PC with one click, like `ssh -L`; DevBench lists what listens there. Forwards come back on the next start.
 - **VMs (libvirt/KVM):** start, shut down, restart, force off. Shutting down and restarting run inside the guest over SSH when it is reachable (much faster than ACPI, especially for Windows), with ACPI as fallback.
 - **Terminal:** a shell on the server or inside a guest, in the app window (xterm.js over the same SSH connection).
 - **Screens over VNC:** view and control a VM's desktop, or the server's own desktop, in the window (noVNC). DevBench opens the SSH tunnel itself, in-process, including jump hosts: no `ssh -L` in a terminal, no separate VNC viewer.
@@ -102,7 +104,9 @@ DevBench reads `~/.ssh/known_hosts` (without writing to it) and its own `known_h
 
 ## Setting up a server
 
-Short version; the details are in [`docs/server-setup.md`](docs/server-setup.md) (the guides in `docs/` are in German with an English summary at the end of each).
+On an apt-based server (Debian, Ubuntu), most of this is one click: the server's menu (⋯) → **Setup & updates** shows what is there and runs the missing steps in the terminal (each step's commands can be shown first). The same dialog installs package and snap updates; a badge on the server shows when updates wait.
+
+Short version of the manual way; the details are in [`docs/server-setup.md`](docs/server-setup.md) (the guides in `docs/` are in German with an English summary at the end of each).
 
 1. **SSH:** OpenSSH server with key login; `ssh <host>` must work from your PC without a password.
 2. **libvirt:** add the SSH user to the `libvirt` group (`sudo usermod -aG libvirt <user>`) so `virsh` works without sudo.
@@ -140,12 +144,18 @@ Step by step: [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
 
 Under **Files** in the sidebar, the list on the left shows the systems: **This PC**, every server and, below it, its VMs (only VMs with a `guest_ssh_user`). A click picks the system, and its file browser opens on the right. DevBench remembers the last folder per system. Transfers run over SFTP through the same SSH connection; nothing extra is needed on the server. The **Files** buttons on the dashboard open a server or VM directly.
 
-- **Navigating:** with the path bar (click a part to jump there; click next to it or press <kbd>Ctrl</kbd>+<kbd>L</kbd> to type a path), with **Places** (home, desktop, downloads, disks, `/`), Back (<kbd>Alt</kbd>+<kbd>←</kbd>) and Up (<kbd>Alt</kbd>+<kbd>↑</kbd>). In Windows guests, paths look like `/C:/Users/name`.
+- **Navigating:** with the path bar (click a part to jump there; click next to it or press <kbd>Ctrl</kbd>+<kbd>L</kbd> to type a path), with **Places** (home, desktop, downloads) and **Drives** (every disk of the system with its label and free space: drive letters on Windows, every mounted disk such as `/data` on Linux), Back (<kbd>Alt</kbd>+<kbd>←</kbd>) and Up (<kbd>Alt</kbd>+<kbd>↑</kbd>). In Windows guests, paths look like `/C:/Users/name`.
 - **Finding:** **Filter** (<kbd>Ctrl</kbd>+<kbd>F</kbd>) hides everything that does not contain the text; clicking a column header sorts.
 - **Upload and download:** on a server or VM, **Upload** copies files from this PC into the open folder, **Download** saves the selection to your Downloads folder. You can also drag files from Explorer/Finder onto the list or onto a system.
 - **Between systems:** **Copy** (<kbd>Ctrl</kbd>+<kbd>C</kbd>) or **Cut** (<kbd>Ctrl</kbd>+<kbd>X</kbd>), pick another system, open a folder, **Paste** (<kbd>Ctrl</kbd>+<kbd>V</kbd>). Or drag rows onto a system in the list: they are copied into its last open folder (moved with <kbd>Shift</kbd>). Within one system, dragging onto a folder moves (copies with <kbd>Shift</kbd>).
 - **Folders:** new, rename (<kbd>F2</kbd>), delete (<kbd>Del</kbd>). Deleted files do **not** go to a recycle bin.
 - **Transfers** appear at the bottom with progress and can be cancelled.
+
+## Port forwarding
+
+**Ports** (at a server, or the plug icon at a running VM) lists what is forwarded and what listens on that system right now (`ss` on Linux, `Get-NetTCPConnection` on Windows), each with **Forward**; any other port can be typed in. The port appears on `localhost` of this PC, with the same number when it is free. A forwarded port shows as a small chip at the server or VM; a click opens it in the browser.
+
+The connection runs through the existing SSH connection: to a guest with a `guest_ssh_user` through the guest's own SSH (so dev servers that listen only on the guest's localhost work), otherwise from the server to the guest's address. The listener on this PC costs nothing until something connects, so forwards stay set while a server sleeps and are opened again when DevBench starts.
 
 ## AI agents (MCP)
 
