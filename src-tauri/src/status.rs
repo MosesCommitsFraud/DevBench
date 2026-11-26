@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn parses_status() {
         let out = "@uptime\n3551.08 27000.1\n@load\n0.17 0.68 1.33 1/700 1234\n@cpu\n\
-                   cpu  100 0 100 800 0 0 0 0 0 0\ncpu  150 0 150 900 0 0 0 0 0 0\n@nproc\n16\n\
+                   cpu  150 0 150 900 0 0 0 0 0 0\n@nproc\n16\n\
                    @mem\nMemTotal:       30000000 kB\nMemAvailable:   20000000 kB\n\
                    @disk\n/dev/nvme0n1p2 1000 400 600 40% /\n@host\ndevhost\n7.0.0\n\
                    @vm abc\nrunning\n\n@vm def\nshut off\n@vm ghi\nerror: failed to get domain 'x'\n";
