@@ -15,6 +15,7 @@ export interface Vm {
   vnc_mode: VncMode;
   vnc_host: string;
   vnc_port: number;
+  vnc_password: string;
   agent_access: boolean;
   agent_exec: boolean;
 }
@@ -80,6 +81,16 @@ export interface ActivityEntry {
   error: string;
 }
 
+export interface RunningAgent {
+  pid: number;
+  client: string;
+  started: string;
+  seen: number;
+  last_tool: string;
+  last_target: string;
+  calls: number;
+}
+
 export type AppError =
   | { kind: "error"; message: string }
   | { kind: "host_key_unknown"; message: string; host: string; port: number; fingerprint: string; key: string }
@@ -106,6 +117,7 @@ export const api = {
   trustHostKey: (host: string, port: number, key: string) => invoke<void>("trust_host_key", { host, port, key }),
   vncOpen: (machineId: string, vmId: string) => invoke<{ url: string; title: string }>("vnc_open", { machineId, vmId }),
   activity: (limit: number) => invoke<ActivityEntry[]>("activity", { limit }),
+  runningAgents: () => invoke<RunningAgent[]>("running_agents"),
 };
 
 export function newId(): string {
@@ -146,6 +158,7 @@ export function emptyVm(libvirtName = ""): Vm {
     vnc_mode: "guest",
     vnc_host: "127.0.0.1",
     vnc_port: 5900,
+    vnc_password: "",
     agent_access: false,
     agent_exec: false,
   };

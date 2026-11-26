@@ -58,6 +58,15 @@
           <span class="label">{m.name}</span>
         </button>
       {/each}
+      {#if store.agents.length}
+        <div class="section">{t("agents.running")}</div>
+        {#each store.agents as a (a.pid)}
+          <button class="nav sub" title={a.last_tool ? `${a.last_tool} · ${a.last_target}` : ""} onclick={() => (view = "activity")}>
+            <span class="led on"></span>
+            <span class="label">{a.client}</span>
+          </button>
+        {/each}
+      {/if}
       <div class="gap"></div>
       <button class="nav" class:active={view === "files"} onclick={() => (view = "files")}>
         <FolderOpen size={16} strokeWidth={1.5} />{t("nav.files")}
@@ -137,6 +146,12 @@
   }
   .gap {
     height: 16px;
+    flex: none;
+  }
+  .section {
+    padding: 16px 8px 4px;
+    color: var(--text-3);
+    font-size: 12px;
     flex: none;
   }
   .nav {

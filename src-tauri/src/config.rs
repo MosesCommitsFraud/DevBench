@@ -87,6 +87,9 @@ pub struct Vm {
     pub vnc_mode: VncMode,
     pub vnc_host: String,
     pub vnc_port: u16,
+    /// Password of the VNC server, only needed if it has one. Stored in plain text: prefer
+    /// a VNC server that listens on localhost only, reached through SSH.
+    pub vnc_password: String,
     /// Agents may start/stop the VM, take screenshots and use mouse and keyboard.
     pub agent_access: bool,
     /// Agents may run commands and read/write files inside the guest.
@@ -107,6 +110,7 @@ impl Default for Vm {
             vnc_mode: VncMode::Guest,
             vnc_host: "127.0.0.1".into(),
             vnc_port: 5900,
+            vnc_password: String::new(),
             agent_access: false,
             agent_exec: false,
         }

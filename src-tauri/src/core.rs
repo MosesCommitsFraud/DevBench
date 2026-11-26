@@ -32,6 +32,8 @@ pub struct Core {
     sftp: tokio::sync::Mutex<HashMap<String, (Arc<Conn>, Arc<SftpSession>)>>,
     /// Cancel flags of running file transfers.
     transfers: std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// When the config file was last read, to pick up changes made by another process.
+    config_stamp: std::sync::Mutex<Option<std::time::SystemTime>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +86,10 @@ impl VmAction {
     }
 }
 
+fn config_mtime() -> Option<std::time::SystemTime> {
+    config::config_path().ok().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok())
+}
+
 impl Core {
     /// Loads the config file; a broken file yields an empty config plus the error to show.
     pub fn load() -> (Self, Option<String>) {
@@ -92,16 +98,29 @@ impl Core {
             Err(e) => (Config::default(), Some(format!("{e:#}"))),
         };
         let known_hosts = config::config_dir().map(|d| d.join("known_hosts")).unwrap_or_else(|_| "known_hosts".into());
-        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default() }, err)
+        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default(), config_stamp: std::sync::Mutex::new(config_mtime()) }, err)
     }
 
     pub fn config(&self) -> Config {
         self.config.read().unwrap().clone()
     }
 
+    /// Re-reads the config file if another process (the GUI or an editor) changed it.
+    pub fn refresh_config(&self) -> Result<()> {
+        let stamp = config_mtime();
+        let mut last = self.config_stamp.lock().unwrap();
+        if stamp != *last {
+            *last = stamp;
+            drop(last);
+            self.reload_config()?;
+        }
+        Ok(())
+    }
+
     pub fn save_config(&self, mut config: Config) -> Result<Config> {
         config.normalize()?;
         config::save(&config)?;
+        *self.config_stamp.lock().unwrap() = config_mtime();
         *self.config.write().unwrap() = config.clone();
         self.pool.clear();
         Ok(config)
@@ -109,6 +128,7 @@ impl Core {
 
     pub fn reload_config(&self) -> Result<Config> {
         let config = config::load()?;
+        *self.config_stamp.lock().unwrap() = config_mtime();
         *self.config.write().unwrap() = config.clone();
         self.pool.clear();
         Ok(config)

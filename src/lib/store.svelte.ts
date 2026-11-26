@@ -1,5 +1,5 @@
 // The loaded config and the live status of every machine, polled in the background.
-import { api, asAppError, type AppError, type Config, type MachineStatus } from "./api";
+import { api, asAppError, type AppError, type Config, type MachineStatus, type RunningAgent } from "./api";
 
 export interface Live {
   status: MachineStatus | null;
@@ -14,7 +14,13 @@ export const store = $state({
   live: {} as Record<string, Live>,
   /** True while a VNC view covers the dashboard: poll less often. */
   vncOpen: false,
+  /** `devbench mcp` processes connected right now. */
+  agents: [] as RunningAgent[],
 });
+
+async function pollAgents() {
+  store.agents = await api.runningAgents().catch(() => []);
+}
 
 const boostUntil: Record<string, number> = {};
 const inFlight = new Set<string>();
@@ -90,6 +96,10 @@ async function loop(id: string) {
 let started = false;
 
 export function startPolling() {
+  if (!started) {
+    void pollAgents();
+    setInterval(pollAgents, 3000);
+  }
   started = true;
   for (const m of store.config.machines) if (!loops.has(m.id)) void loop(m.id);
 }

@@ -2,5 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        if let Err(e) = devbench_lib::run_mcp() {
+            eprintln!("devbench mcp: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     devbench_lib::run()
 }

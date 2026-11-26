@@ -1,14 +1,17 @@
 //! DevBench: a control center for home servers and their virtual machines.
 
 mod activity;
+mod agents;
 mod config;
 mod core;
 mod error;
 mod files;
+mod mcp;
 mod ssh;
 mod sshconf;
 mod status;
 mod vnc;
+mod vncclient;
 mod wol;
 
 use std::sync::Arc;
@@ -160,6 +163,11 @@ fn fs_cancel(state: State<'_, AppState>, id: String) {
 }
 
 #[tauri::command]
+fn running_agents() -> Vec<agents::Agent> {
+    agents::running()
+}
+
+#[tauri::command]
 fn activity(limit: usize) -> Vec<activity::Entry> {
     activity::recent(limit.min(1000))
 }
@@ -175,6 +183,11 @@ async fn vnc_open(state: State<'_, AppState>, machine_id: String, vm_id: String)
     let (conn, channel, title) = state.core.vnc_channel(&machine_id, &vm_id).await?;
     let url = state.bridge.register(conn, channel).await?;
     Ok(VncTarget { url, title })
+}
+
+/// `devbench mcp`: serve AI agents over MCP on stdin/stdout instead of opening the window.
+pub fn run_mcp() -> anyhow::Result<()> {
+    mcp::run()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -208,6 +221,7 @@ pub fn run() {
             trust_host_key,
             vnc_open,
             activity,
+            running_agents,
             fs_list,
             fs_mkdir,
             fs_rename,

@@ -173,6 +173,10 @@
             {#if vm.vnc_mode !== "none"}
               <label class="field"><span>{t("field.vncTarget")}</span><input bind:value={vm.vnc_host} spellcheck="false" /></label>
               <label class="field"><span>{t("field.vncPort")}</span><input type="number" min="1" max="65535" bind:value={vm.vnc_port} /></label>
+              <label class="field">
+                <span>{t("field.vncPassword")}</span><input type="password" bind:value={vm.vnc_password} autocomplete="off" />
+                <small>{t("field.vncPassword.hint")}</small>
+              </label>
             {/if}
             <label class="field">
               <span>{t("field.guestAddress")}</span><input bind:value={vm.guest_address} placeholder="auto" spellcheck="false" />
