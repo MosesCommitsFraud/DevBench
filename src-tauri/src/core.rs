@@ -185,8 +185,18 @@ impl Core {
     }
 
     pub async fn vm_action(&self, machine: &str, vm: &str, action: VmAction) -> Result<()> {
-        let (_, vm, ep) = self.machine_vm(machine, vm)?;
+        let (m, vm, ep) = self.machine_vm(machine, vm)?;
         let verb = action.verb();
+        // Shutting down from inside the guest is much faster than libvirt's ACPI signal,
+        // which a guest (Windows in particular) answers at its own pace.
+        if matches!(action, VmAction::Shutdown | VmAction::Reboot) && !vm.guest_ssh_user.trim().is_empty() {
+            let reboot = action == VmAction::Reboot;
+            match tokio::time::timeout(Duration::from_secs(12), self.guest_power(&m, &vm, &ep, reboot)).await {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(e)) => log::info!("{}: shutdown inside the guest failed, using ACPI: {e:#}", vm.name),
+                Err(_) => log::info!("{}: guest did not answer in time, using ACPI", vm.name),
+            }
+        }
         let cmd = format!("LC_ALL=C virsh -c {} {verb} {}", sh_quote(&vm.libvirt_uri), sh_quote(&vm.libvirt_name));
         let out = self.pool.exec(&ep, &cmd, Duration::from_secs(60)).await?;
         if out.code != Some(0) {
@@ -194,6 +204,31 @@ impl Core {
             bail!("virsh {verb}: {msg}");
         }
         Ok(())
+    }
+
+    /// Shuts the guest down (or reboots it) with its own command over SSH.
+    async fn guest_power(&self, m: &Machine, vm: &Vm, ep: &Endpoint, reboot: bool) -> Result<()> {
+        let guest = self.guest(m, vm, ep).await?;
+        let loc = Location::Remote { machine: m.id.clone(), vm: Some(vm.id.clone()) };
+        // Windows' SFTP server shows drive paths like /C:/Users/name.
+        let home = self.fs(&loc).await?.home().await.unwrap_or_default();
+        let windows = home.len() >= 3 && home.as_bytes()[0] == b'/' && home.as_bytes()[2] == b':';
+        let cmd = match (windows, reboot) {
+            (true, false) => "shutdown /s /f /t 0",
+            (true, true) => "shutdown /r /f /t 0",
+            (false, false) => "sudo -n systemctl poweroff",
+            (false, true) => "sudo -n systemctl reboot",
+        };
+        let result = self.pool.exec(&guest, cmd, Duration::from_secs(10)).await;
+        // The connections die with the guest; open fresh ones next time.
+        self.pool.evict(&guest);
+        self.sftp.lock().await.remove(&guest.cache_key());
+        self.guest_addrs.lock().unwrap().remove(&format!("{}/{}", m.id, vm.id));
+        match result {
+            Ok(out) if out.code.unwrap_or(0) == 0 => Ok(()),
+            Ok(out) => bail!("{cmd}: {}", if out.stderr.trim().is_empty() { out.stdout.trim() } else { out.stderr.trim() }),
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn list_domains(&self, machine: &str, uri: &str) -> Result<Vec<String>> {

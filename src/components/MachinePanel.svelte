@@ -17,14 +17,16 @@
 
   let busy = $state<Record<string, boolean>>({});
 
-  async function act(key: string, fn: () => Promise<unknown>, done?: string) {
+  async function act(key: string, fn: () => Promise<unknown>, done?: string): Promise<boolean> {
     busy[key] = true;
     try {
       await run(fn);
       if (done) notify(done);
       boost(machine.id);
+      return true;
     } catch {
       // shown by run()
+      return false;
     } finally {
       busy[key] = false;
     }
@@ -55,8 +57,30 @@
       );
       if (!ok) return;
     }
-    await act(`${vm.id}:${action}`, () => api.vmAction(machine.id, vm.id, action));
+    // Show the transition right away; it clears once libvirt reports the new state.
+    const label = { start: "vm.starting", shutdown: "vm.stopping", reboot: "vm.restarting", destroy: "vm.stopping" } as const;
+    const wasRunning = !!vmStatus(vm)?.running;
+    vmPending[vm.id] = { label: t(label[action]), wasRunning, action, since: Date.now() };
+    if (!(await act(`${vm.id}:${action}`, () => api.vmAction(machine.id, vm.id, action)))) delete vmPending[vm.id];
   }
+
+  interface Pending {
+    label: string;
+    wasRunning: boolean;
+    action: string;
+    since: number;
+  }
+  let vmPending = $state<Record<string, Pending>>({});
+
+  // A pending transition ends when the VM reached the other state (or after two minutes).
+  $effect(() => {
+    for (const [id, p] of Object.entries(vmPending)) {
+      const vs = st?.vms.find((v) => v.id === id);
+      const reboot = p.action === "reboot";
+      const done = reboot ? Date.now() - p.since > 8000 && !!vs?.running : vs && vs.running !== p.wasRunning;
+      if (done || Date.now() - p.since > 120000) delete vmPending[id];
+    }
+  });
 
   async function checkHostKey() {
     if (hostKeyError && (await askHostKey(hostKeyError))) void poll(machine.id);
@@ -128,11 +152,12 @@
       {#each machine.vms as vm (vm.id)}
         {@const vs = vmStatus(vm)}
         {@const running = !!vs?.running}
+        {@const pending = vmPending[vm.id]}
         <li>
-          <span class="led" class:on={running} class:busy={vs?.state === "in shutdown" || vs?.state === "paused"} class:error={vs?.state === "crashed"}></span>
+          <span class="led" class:on={running && !pending} class:busy={!!pending || vs?.state === "in shutdown" || vs?.state === "paused"} class:error={vs?.state === "crashed"}></span>
           <span class="vm-name">{vm.name}</span>
           <span class="mono muted vm-meta">{vm.libvirt_name}</span>
-          <span class="vm-state secondary" title={vs?.error ?? ""}>{online && vs ? vmStateLabel(vs.state) : "–"}</span>
+          <span class="vm-state secondary" title={vs?.error ?? ""}>{pending ? `${pending.label} …` : online && vs ? vmStateLabel(vs.state) : "–"}</span>
           <div class="vm-actions">
             {#if online && vs}
               {#if running}
