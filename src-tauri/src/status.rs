@@ -21,10 +21,22 @@ pub struct MachineStatus {
     pub mem_available: u64,
     pub disk_total: u64,
     pub disk_used: u64,
+    /// Distribution name, e.g. "Ubuntu 24.04.1 LTS".
+    pub os: String,
+    pub cpu_model: String,
+    /// Interface of the default route and its IPv4 address.
+    pub iface: String,
+    pub ip: String,
+    /// Bytes per second on the default interface since the last poll.
+    pub net_rx_rate: f64,
+    pub net_tx_rate: f64,
     pub vms: Vec<VmStatus>,
     /// Raw (total, idle) CPU ticks; CPU usage is the difference between two polls.
     #[serde(skip)]
     pub cpu_ticks: Option<(u64, u64)>,
+    /// Raw (rx, tx) byte counters of the default interface.
+    #[serde(skip)]
+    pub net_bytes: Option<(u64, u64)>,
 }
 
 impl MachineStatus {
@@ -39,13 +51,46 @@ impl MachineStatus {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct VmStatus {
     pub id: String,
     /// libvirt's state text, e.g. "running", "shut off", "paused"; empty if unknown.
     pub state: String,
     pub running: bool,
     pub error: Option<String>,
+    pub vcpus: u32,
+    /// Memory assigned to the VM, in bytes.
+    pub memory: u64,
+    /// Share of the VM's vCPUs in use since the last poll, 0..100; None on the first poll.
+    pub cpu_percent: Option<f64>,
+    /// IPv4 address libvirt knows for the guest (DHCP lease or ARP), if any.
+    pub ip: String,
+    /// Total CPU time of the VM in nanoseconds (for the usage between polls).
+    #[serde(skip)]
+    pub cpu_time: Option<u64>,
+}
+
+impl MachineStatus {
+    /// Sets the network rates from the previous poll's counters and the time in between.
+    pub fn apply_net(&mut self, previous: Option<((u64, u64), std::time::Instant)>, now: std::time::Instant) {
+        let (Some((rx, tx)), Some(((prx, ptx), t))) = (self.net_bytes, previous) else { return };
+        let secs = now.duration_since(t).as_secs_f64();
+        if secs > 0.2 && rx >= prx && tx >= ptx {
+            self.net_rx_rate = (rx - prx) as f64 / secs;
+            self.net_tx_rate = (tx - ptx) as f64 / secs;
+        }
+    }
+
+    /// Sets each VM's CPU usage from its previous CPU time sample.
+    pub fn apply_vm_cpu(&mut self, previous: &std::collections::HashMap<String, (u64, std::time::Instant)>, now: std::time::Instant) {
+        for v in &mut self.vms {
+            let (Some(t2), Some((t1, at))) = (v.cpu_time, previous.get(&v.id)) else { continue };
+            let wall = now.duration_since(*at).as_nanos() as f64 * v.vcpus.max(1) as f64;
+            if v.running && wall > 0.0 && t2 >= *t1 {
+                v.cpu_percent = Some((100.0 * (t2 - t1) as f64 / wall).min(100.0));
+            }
+        }
+    }
 }
 
 pub fn script(m: &Machine) -> String {
@@ -57,16 +102,23 @@ pub fn script(m: &Machine) -> String {
          echo @nproc; nproc\n\
          echo @mem; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo\n\
          echo @disk; df -P -B1 / | tail -n1\n\
-         echo @host; hostname; uname -r\n",
+         echo @host; hostname; uname -r\n\
+         echo @os; (. /etc/os-release 2>/dev/null; echo \"$PRETTY_NAME\")\n\
+         echo @cpumodel; grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-\n\
+         echo @net; i=$(ip -o route show default 2>/dev/null | awk '{print $5; exit}'); echo \"$i\"; \
+         ip -o -4 addr show dev \"$i\" 2>/dev/null | awk '{print $4; exit}'; grep \"^ *$i:\" /proc/net/dev\n",
     );
     for vm in &m.vms {
+        let (uri, name) = (sh_quote(&vm.libvirt_uri), sh_quote(&vm.libvirt_name));
         s.push_str(&format!(
-            "echo @vm {}; virsh -c {} domstate {} 2>&1\n",
-            vm.id,
-            sh_quote(&vm.libvirt_uri),
-            sh_quote(&vm.libvirt_name)
+            "echo @vm {id}; st=$(virsh -c {uri} domstate {name} 2>&1); echo \"$st\"\n\
+             echo @vmstats {id}; virsh -c {uri} domstats {name} --cpu-total --balloon --vcpu 2>/dev/null | grep -E 'cpu.time=|balloon.maximum=|vcpu.current='\n\
+             echo @vmip {id}; [ \"$st\" = running ] && {{ virsh -c {uri} domifaddr {name} --source lease 2>/dev/null; virsh -c {uri} domifaddr {name} --source arp 2>/dev/null; }}\n",
+            id = vm.id
         ));
     }
+    // The last VM's `[ ... ] &&` must not decide the exit status.
+    s.push_str("true\n");
     s
 }
 
@@ -132,17 +184,66 @@ pub fn parse(out: &str) -> MachineStatus {
                 st.hostname = first.trim().to_string();
                 st.kernel = lines.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
             }
+            "os" => st.os = first.trim().to_string(),
+            "cpumodel" => st.cpu_model = tidy_cpu_model(first),
+            "net" => {
+                st.iface = first.trim().to_string();
+                for l in lines.iter().skip(1) {
+                    if let Some((_, counters)) = l.split_once(':').filter(|(n, _)| n.trim() == st.iface && !st.iface.is_empty()) {
+                        let f: Vec<u64> = counters.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                        if f.len() >= 9 {
+                            st.net_bytes = Some((f[0], f[8]));
+                        }
+                    } else if l.contains('/') && st.ip.is_empty() {
+                        st.ip = l.trim().split('/').next().unwrap_or("").to_string();
+                    }
+                }
+            }
             _ => {
                 if let Some(id) = name.strip_prefix("vm ") {
                     let text = lines.join(" ").trim().to_string();
                     let known = ["running", "idle", "paused", "in shutdown", "shut off", "crashed", "pmsuspended"];
                     let (state, error) = if known.contains(&text.as_str()) { (text, None) } else { (String::new(), Some(text)) };
-                    st.vms.push(VmStatus { id: id.to_string(), running: state == "running", state, error });
+                    st.vms.push(VmStatus { id: id.to_string(), running: state == "running", state, error, ..Default::default() });
+                } else if let Some(id) = name.strip_prefix("vmstats ") {
+                    let Some(v) = st.vms.iter_mut().find(|v| v.id == id) else { continue };
+                    for l in &lines {
+                        let Some((k, val)) = l.trim().split_once('=') else { continue };
+                        let n = val.trim().parse::<u64>().unwrap_or(0);
+                        match k {
+                            "cpu.time" => v.cpu_time = Some(n),
+                            "balloon.maximum" => v.memory = n * 1024,
+                            "vcpu.current" => v.vcpus = n as u32,
+                            _ => {}
+                        }
+                    }
+                } else if let Some(id) = name.strip_prefix("vmip ") {
+                    let Some(v) = st.vms.iter_mut().find(|v| v.id == id) else { continue };
+                    v.ip = lines
+                        .iter()
+                        .filter_map(|l| {
+                            let f: Vec<&str> = l.split_whitespace().collect();
+                            (f.len() >= 4 && f[2] == "ipv4").then(|| f[3].split('/').next().unwrap_or("").to_string())
+                        })
+                        .find(|a| !a.is_empty() && !a.starts_with("127."))
+                        .unwrap_or_default();
                 }
             }
         }
     }
     st
+}
+
+/// "AMD Ryzen 9 7950X 16-Core Processor" -> "AMD Ryzen 9 7950X".
+fn tidy_cpu_model(raw: &str) -> String {
+    let mut s = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    for noise in ["(R)", "(TM)", "(tm)", " CPU", " Processor"] {
+        s = s.replace(noise, "");
+    }
+    if let Some(i) = s.find(" @ ") {
+        s.truncate(i);
+    }
+    s.split(' ').filter(|w| !w.ends_with("-Core")).collect::<Vec<_>>().join(" ").trim().to_string()
 }
 
 pub const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -183,7 +284,11 @@ mod tests {
                    cpu  150 0 150 900 0 0 0 0 0 0\n@nproc\n16\n\
                    @mem\nMemTotal:       30000000 kB\nMemAvailable:   20000000 kB\n\
                    @disk\n/dev/nvme0n1p2 1000 400 600 40% /\n@host\ndevhost\n7.0.0\n\
-                   @vm abc\nrunning\n\n@vm def\nshut off\n@vm ghi\nerror: failed to get domain 'x'\n";
+                   @os\nUbuntu 24.04.1 LTS\n@cpumodel\n AMD Ryzen 9 7950X 16-Core Processor\n\
+                   @net\nenp5s0\n192.0.2.10/24\n  enp5s0: 1000 10 0 0 0 0 0 0 2000 20 0 0 0 0 0 0\n\
+                   @vm abc\nrunning\n@vmstats abc\n  cpu.time=5000\n  balloon.maximum=8388608\n  vcpu.current=4\n\
+                   @vmip abc\n vnet0 52:54:00:aa:bb:cc ipv4 192.168.122.5/24\n\
+                   @vm def\nshut off\n@vm ghi\nerror: failed to get domain 'x'\n";
         let mut st = parse(out);
         st.apply_cpu(Some((1000, 800)));
         assert_eq!(st.uptime_secs, 3551);
@@ -195,5 +300,12 @@ mod tests {
         assert!(st.vms[0].running);
         assert_eq!(st.vms[1].state, "shut off");
         assert!(st.vms[2].error.is_some());
+        assert_eq!(st.os, "Ubuntu 24.04.1 LTS");
+        assert_eq!(st.cpu_model, "AMD Ryzen 9 7950X");
+        assert_eq!(st.ip, "192.0.2.10");
+        assert_eq!(st.net_bytes, Some((1000, 2000)));
+        assert_eq!(st.vms[0].vcpus, 4);
+        assert_eq!(st.vms[0].memory, 8 * 1024 * 1024 * 1024);
+        assert_eq!(st.vms[0].ip, "192.168.122.5");
     }
 }

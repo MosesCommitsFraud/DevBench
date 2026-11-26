@@ -178,11 +178,41 @@ struct VncTarget {
     title: String,
 }
 
+/// Opens a VM's screen, or the machine's own desktop when `vm_id` is missing.
 #[tauri::command]
-async fn vnc_open(state: State<'_, AppState>, machine_id: String, vm_id: String) -> CmdResult<VncTarget> {
-    let (conn, channel, title) = state.core.vnc_channel(&machine_id, &vm_id).await?;
-    let url = state.bridge.register(conn, channel).await?;
+async fn vnc_open(state: State<'_, AppState>, machine_id: String, vm_id: Option<String>) -> CmdResult<VncTarget> {
+    let (conn, channel, title) = match vm_id {
+        Some(vm) => state.core.vnc_channel(&machine_id, &vm).await?,
+        None => state.core.machine_vnc_channel(&machine_id).await?,
+    };
+    let url = state.bridge.register(conn, channel, vnc::Kind::Raw).await?;
     Ok(VncTarget { url, title })
+}
+
+/// Opens a shell with a terminal on the machine or in a guest. The WebSocket carries the
+/// terminal's bytes as binary messages; a text message `{"cols":80,"rows":24}` resizes it.
+#[tauri::command]
+async fn term_open(state: State<'_, AppState>, machine_id: String, vm_id: Option<String>, cols: u32, rows: u32) -> CmdResult<VncTarget> {
+    let (conn, channel, title) = state.core.shell_channel(&machine_id, vm_id.as_deref(), cols, rows).await?;
+    let url = state.bridge.register(conn, channel, vnc::Kind::Terminal).await?;
+    Ok(VncTarget { url, title })
+}
+
+/// Folders on this PC worth a shortcut in the file browser: home, desktop, downloads, documents.
+#[tauri::command]
+fn local_places() -> Vec<(String, String)> {
+    let mut v = Vec::new();
+    for (name, dir) in [
+        ("home", dirs::home_dir()),
+        ("desktop", dirs::desktop_dir()),
+        ("downloads", dirs::download_dir()),
+        ("documents", dirs::document_dir()),
+    ] {
+        if let Some(d) = dir.filter(|d| d.is_dir()) {
+            v.push((name.to_string(), d.display().to_string()));
+        }
+    }
+    v
 }
 
 /// `devbench mcp`: serve AI agents over MCP on stdin/stdout instead of opening the window.
@@ -220,6 +250,8 @@ pub fn run() {
             list_domains,
             trust_host_key,
             vnc_open,
+            term_open,
+            local_places,
             activity,
             running_agents,
             fs_list,

@@ -30,6 +30,11 @@ pub struct Machine {
     pub mac: String,
     pub wol_broadcast: String,
     pub wol_port: u16,
+    /// Port of a VNC server showing the machine's own desktop (e.g. gnome-remote-desktop,
+    /// wayvnc, x11vnc), reached through SSH. 0 = no desktop button.
+    pub desktop_vnc_port: u16,
+    /// Where that VNC server listens, as seen from the machine. Empty = 127.0.0.1.
+    pub desktop_vnc_host: String,
     /// AI agents (MCP) may see this machine: status, Wake-on-LAN, its VM list.
     pub agent_access: bool,
     /// Agents may run shell commands and read/write files on the machine.
@@ -52,6 +57,8 @@ impl Default for Machine {
             mac: String::new(),
             wol_broadcast: "255.255.255.255".into(),
             wol_port: 9,
+            desktop_vnc_port: 0,
+            desktop_vnc_host: String::new(),
             agent_access: false,
             agent_exec: false,
             agent_power: false,

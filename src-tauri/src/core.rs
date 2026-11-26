@@ -26,6 +26,10 @@ pub struct Core {
     pool: ssh::Pool,
     /// Last CPU tick sample per machine, so usage covers the whole interval between polls.
     cpu: std::sync::Mutex<HashMap<String, (u64, u64)>>,
+    /// Last network counter sample per machine, for the transfer rate.
+    net: std::sync::Mutex<HashMap<String, ((u64, u64), Instant)>>,
+    /// Last CPU time sample per VM (key: machine id / VM id).
+    vm_cpu: std::sync::Mutex<HashMap<String, HashMap<String, (u64, Instant)>>>,
     /// Guest addresses from libvirt, reused for a minute.
     guest_addrs: std::sync::Mutex<HashMap<String, (String, Instant)>>,
     /// Open SFTP sessions per endpoint, with the connection they run on.
@@ -98,7 +102,7 @@ impl Core {
             Err(e) => (Config::default(), Some(format!("{e:#}"))),
         };
         let known_hosts = config::config_dir().map(|d| d.join("known_hosts")).unwrap_or_else(|_| "known_hosts".into());
-        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default(), config_stamp: std::sync::Mutex::new(config_mtime()) }, err)
+        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), net: Default::default(), vm_cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default(), config_stamp: std::sync::Mutex::new(config_mtime()) }, err)
     }
 
     pub fn config(&self) -> Config {
@@ -153,11 +157,26 @@ impl Core {
     pub async fn status(&self, machine: &str) -> Result<MachineStatus> {
         let (m, ep) = self.machine(machine)?;
         let out = self.pool.exec(&ep, &status::script(&m), status::STATUS_TIMEOUT).await?;
+        let now = Instant::now();
         let mut st = status::parse(&out.stdout);
         let mut cpu = self.cpu.lock().unwrap();
         st.apply_cpu(cpu.get(&m.id).copied());
         if let Some(ticks) = st.cpu_ticks {
             cpu.insert(m.id.clone(), ticks);
+        }
+        let mut net = self.net.lock().unwrap();
+        st.apply_net(net.get(&m.id).copied(), now);
+        if let Some(b) = st.net_bytes {
+            net.insert(m.id.clone(), (b, now));
+        }
+        let mut vm_cpu = self.vm_cpu.lock().unwrap();
+        let samples = vm_cpu.entry(m.id.clone()).or_default();
+        st.apply_vm_cpu(samples, now);
+        samples.clear();
+        for v in &st.vms {
+            if let Some(t) = v.cpu_time.filter(|_| v.running) {
+                samples.insert(v.id.clone(), (t, now));
+            }
         }
         Ok(st)
     }
@@ -350,6 +369,48 @@ impl Core {
         if let Some(c) = self.transfers.lock().unwrap().get(id) {
             c.store(true, std::sync::atomic::Ordering::Relaxed);
         }
+    }
+
+    /// An interactive shell with a terminal on the machine, or in a guest when `vm` is given.
+    pub async fn shell_channel(&self, machine: &str, vm: Option<&str>, cols: u32, rows: u32) -> Result<(Arc<Conn>, Channel<Msg>, String)> {
+        let (m, _) = self.machine(machine)?;
+        let title = match vm {
+            Some(v) => format!("{} · {}", m.vm(v)?.name, m.name),
+            None => m.name.clone(),
+        };
+        let ep = self.target(machine, vm).await?;
+        let mut last = None;
+        // A pooled connection may have died since its last use: retry once on a fresh one.
+        for _ in 0..2 {
+            let conn = self.pool.get(&ep).await?;
+            match conn.handle.channel_open_session().await {
+                Ok(ch) => {
+                    ch.request_pty(false, "xterm-256color", cols.max(20), rows.max(5), 0, 0, &[]).await?;
+                    ch.request_shell(false).await?;
+                    return Ok((conn, ch, title));
+                }
+                Err(e) => {
+                    self.pool.evict(&ep);
+                    last = Some(e);
+                }
+            }
+        }
+        Err(anyhow!(last.expect("set in the loop")).context("opening a shell"))
+    }
+
+    /// A forwarded TCP connection to the desktop of the machine itself (a VNC server on it).
+    pub async fn machine_vnc_channel(&self, machine: &str) -> Result<(Arc<Conn>, Channel<Msg>, String)> {
+        let (m, ep) = self.machine(machine)?;
+        if m.desktop_vnc_port == 0 {
+            bail!("{} has no desktop configured (set its VNC port in the settings)", m.name);
+        }
+        let host = if m.desktop_vnc_host.trim().is_empty() { "127.0.0.1" } else { m.desktop_vnc_host.trim() };
+        let (conn, ch) = self
+            .pool
+            .forward(&ep, host, m.desktop_vnc_port)
+            .await
+            .with_context(|| format!("VNC server on {} ({host}:{})", m.name, m.desktop_vnc_port))?;
+        Ok((conn, ch, m.name.clone()))
     }
 
     /// A forwarded TCP connection to the VM's VNC server, plus a display title.

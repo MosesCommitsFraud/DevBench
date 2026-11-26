@@ -1,6 +1,6 @@
-//! A local WebSocket server that bridges noVNC to an SSH-forwarded VNC connection (what
-//! websockify does, but in-process). It listens on 127.0.0.1 only, and every tunnel gets a
-//! one-time random token in the URL path.
+//! A local WebSocket server that bridges the frontend to SSH channels: noVNC to a forwarded
+//! VNC connection (what websockify does, but in-process), and the terminal to a shell.
+//! It listens on 127.0.0.1 only, and every tunnel gets a one-time random token in the URL path.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -22,9 +22,20 @@ use crate::ssh::Conn;
 /// How long an opened tunnel waits for noVNC to connect.
 const PENDING_TTL: Duration = Duration::from_secs(60);
 
+/// What travels over a tunnel.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Bytes both ways (VNC).
+    Raw,
+    /// A shell with a terminal: bytes both ways, plus `{"cols":..,"rows":..}` text messages
+    /// that resize the terminal.
+    Terminal,
+}
+
 struct Pending {
     conn: Arc<Conn>,
     channel: Channel<Msg>,
+    kind: Kind,
     created: Instant,
 }
 
@@ -36,7 +47,7 @@ pub struct Bridge {
 
 impl Bridge {
     /// Registers a forwarded VNC channel and returns the WebSocket URL noVNC should open.
-    pub async fn register(self: &Arc<Self>, conn: Arc<Conn>, channel: Channel<Msg>) -> Result<String> {
+    pub async fn register(self: &Arc<Self>, conn: Arc<Conn>, channel: Channel<Msg>, kind: Kind) -> Result<String> {
         let port = *self
             .port
             .get_or_try_init(|| async {
@@ -52,7 +63,7 @@ impl Bridge {
         let token: String = b.iter().map(|x| format!("{x:02x}")).collect();
         let mut pending = self.pending.lock().unwrap();
         pending.retain(|_, p| p.created.elapsed() < PENDING_TTL);
-        pending.insert(token.clone(), Pending { conn, channel, created: Instant::now() });
+        pending.insert(token.clone(), Pending { conn, channel, kind, created: Instant::now() });
         Ok(format!("ws://127.0.0.1:{port}/{token}"))
     }
 
@@ -102,8 +113,11 @@ impl Bridge {
             Ok(resp)
         };
         let ws = tokio_tungstenite::accept_hdr_async(stream, callback).await?;
-        let Pending { conn, channel, .. } = taken.expect("set by the handshake callback");
+        let Pending { conn, channel, kind, .. } = taken.expect("set by the handshake callback");
         let _keep_ssh_alive = conn;
+        if kind == Kind::Terminal {
+            return serve_terminal(ws, channel).await;
+        }
 
         let (mut ws_tx, mut ws_rx) = ws.split();
         let (mut rd, mut wr) = tokio::io::split(channel.into_stream());
@@ -136,5 +150,56 @@ impl Bridge {
             r = upstream => r,
             r = downstream => r,
         }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Resize {
+    cols: u32,
+    rows: u32,
+}
+
+async fn serve_terminal(ws: tokio_tungstenite::WebSocketStream<TcpStream>, channel: Channel<Msg>) -> Result<()> {
+    use russh::ChannelMsg;
+    let (mut ws_tx, mut ws_rx) = ws.split();
+    let (mut rd, wr) = channel.split();
+    let mut input = wr.make_writer();
+
+    let upstream = async {
+        while let Some(msg) = ws_rx.next().await {
+            match msg? {
+                Message::Binary(b) => {
+                    input.write_all(&b).await?;
+                    input.flush().await?;
+                }
+                Message::Text(t) => {
+                    if let Ok(r) = serde_json::from_str::<Resize>(t.as_str()) {
+                        wr.window_change(r.cols.max(1), r.rows.max(1), 0, 0).await.ok();
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+        wr.eof().await.ok();
+        anyhow::Ok(())
+    };
+    let downstream = async {
+        while let Some(msg) = rd.wait().await {
+            match msg {
+                ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
+                    ws_tx.send(Message::Binary(data.to_vec().into())).await?;
+                }
+                ChannelMsg::Eof | ChannelMsg::Close => break,
+                ChannelMsg::ExitStatus { .. } => {}
+                _ => {}
+            }
+        }
+        ws_tx.send(Message::Close(None)).await.ok();
+        anyhow::Ok(())
+    };
+    tokio::select! {
+        r = upstream => r,
+        r = downstream => r,
     }
 }
