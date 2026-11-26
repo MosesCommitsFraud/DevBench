@@ -12,6 +12,18 @@ export function bytes(n: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Bytes per second, e.g. "1.2 MB/s". */
+export function rate(n: number): string {
+  if (n < 1024) return `${Math.round(n)} B/s`;
+  return `${bytes(n)}/s`;
+}
+
+/** Whole gigabytes for sizes like a VM's memory: "16 GB", "0.5 GB". */
+export function gb(n: number): string {
+  const v = n / 1024 ** 3;
+  return `${v >= 1 ? Math.round(v) : v.toFixed(1)} GB`;
+}
+
 export function duration(secs: number): string {
   const d = Math.floor(secs / 86400);
   const h = Math.floor((secs % 86400) / 3600);

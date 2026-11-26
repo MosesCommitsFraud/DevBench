@@ -31,6 +31,8 @@ export interface Machine {
   mac: string;
   wol_broadcast: string;
   wol_port: number;
+  desktop_vnc_port: number;
+  desktop_vnc_host: string;
   agent_access: boolean;
   agent_exec: boolean;
   agent_power: boolean;
@@ -46,6 +48,10 @@ export interface VmStatus {
   state: string;
   running: boolean;
   error: string | null;
+  vcpus: number;
+  memory: number;
+  cpu_percent: number | null;
+  ip: string;
 }
 
 export interface MachineStatus {
@@ -60,6 +66,12 @@ export interface MachineStatus {
   mem_available: number;
   disk_total: number;
   disk_used: number;
+  os: string;
+  cpu_model: string;
+  iface: string;
+  ip: string;
+  net_rx_rate: number;
+  net_tx_rate: number;
   vms: VmStatus[];
 }
 
@@ -115,7 +127,11 @@ export const api = {
     invoke<void>("vm_action", { machineId, vmId, action }),
   listDomains: (machineId: string, uri: string) => invoke<string[]>("list_domains", { machineId, uri }),
   trustHostKey: (host: string, port: number, key: string) => invoke<void>("trust_host_key", { host, port, key }),
-  vncOpen: (machineId: string, vmId: string) => invoke<{ url: string; title: string }>("vnc_open", { machineId, vmId }),
+  /** A VM's screen, or the machine's own desktop when vmId is null. */
+  vncOpen: (machineId: string, vmId: string | null) => invoke<{ url: string; title: string }>("vnc_open", { machineId, vmId }),
+  termOpen: (machineId: string, vmId: string | null, cols: number, rows: number) =>
+    invoke<{ url: string; title: string }>("term_open", { machineId, vmId, cols, rows }),
+  localPlaces: () => invoke<[string, string][]>("local_places"),
   activity: (limit: number) => invoke<ActivityEntry[]>("activity", { limit }),
   runningAgents: () => invoke<RunningAgent[]>("running_agents"),
 };
@@ -138,6 +154,8 @@ export function emptyMachine(): Machine {
     mac: "",
     wol_broadcast: "255.255.255.255",
     wol_port: 9,
+    desktop_vnc_port: 0,
+    desktop_vnc_host: "",
     agent_access: false,
     agent_exec: false,
     agent_power: false,

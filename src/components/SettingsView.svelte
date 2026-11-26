@@ -5,6 +5,13 @@
   import { langChoice, setLang, t } from "../lib/i18n.svelte";
   import { setConfig, store } from "../lib/store.svelte";
   import { notify, run } from "../lib/ui.svelte";
+  import { setTheme, themeChoice, type ThemeChoice } from "../lib/theme.svelte";
+
+  const themes: [ThemeChoice, string][] = [
+    ["system", "theme.system"],
+    ["light", "theme.light"],
+    ["dark", "theme.dark"],
+  ];
 
   let draft = $state<Config>(structuredClone($state.snapshot(store.config)));
   let saved = $state(JSON.stringify(store.config));
@@ -145,6 +152,18 @@
         <label class="field"><span>{t("field.wolPort")}</span><input type="number" min="1" max="65535" bind:value={m.wol_port} /></label>
       </div>
 
+      <h3>{t("section.desktop")}</h3>
+      <p class="muted hint">{t("section.desktop.hint")}</p>
+      <div class="grid">
+        <label class="field">
+          <span>{t("field.desktopPort")}</span><input type="number" min="0" max="65535" bind:value={m.desktop_vnc_port} />
+          <small>{t("field.desktopPort.hint")}</small>
+        </label>
+        {#if m.desktop_vnc_port}
+          <label class="field"><span>{t("field.desktopHost")}</span><input bind:value={m.desktop_vnc_host} placeholder="127.0.0.1" spellcheck="false" /></label>
+        {/if}
+      </div>
+
       <div class="sub-head">
         <h3>{t("section.vms")}</h3>
         <div class="head-actions">
@@ -164,11 +183,11 @@
             <label class="field"><span>{t("field.libvirtUri")}</span><input bind:value={vm.libvirt_uri} spellcheck="false" /></label>
             <label class="field">
               <span>{t("field.vncMode")}</span>
-              <select bind:value={vm.vnc_mode}>
-                <option value="guest">{t("field.vncMode.guest")}</option>
-                <option value="host">{t("field.vncMode.host")}</option>
-                <option value="none">{t("field.vncMode.none")}</option>
-              </select>
+              <span class="seg">
+                {#each [["guest", "field.vncMode.guestShort"], ["host", "field.vncMode.hostShort"], ["none", "field.vncMode.none"]] as const as [mode, label] (mode)}
+                  <button type="button" aria-pressed={vm.vnc_mode === mode} title={mode === "none" ? "" : t(mode === "guest" ? "field.vncMode.guest" : "field.vncMode.host")} onclick={() => (vm.vnc_mode = mode)}>{t(label)}</button>
+                {/each}
+              </span>
             </label>
             {#if vm.vnc_mode !== "none"}
               <label class="field"><span>{t("field.vncTarget")}</span><input bind:value={vm.vnc_host} spellcheck="false" /></label>
@@ -204,15 +223,24 @@
   {/each}
 
   <section class="card">
+    <div class="card-head"><h2>{t("settings.general")}</h2></div>
     <div class="grid">
-      <label class="field">
+      <div class="field">
+        <span>{t("settings.theme")}</span>
+        <span class="seg">
+          {#each themes as [value, label] (value)}
+            <button type="button" aria-pressed={themeChoice() === value} onclick={() => setTheme(value)}>{t(label as "theme.system")}</button>
+          {/each}
+        </span>
+      </div>
+      <div class="field">
         <span>{t("settings.language")}</span>
-        <select value={langChoice()} onchange={(e) => setLang((e.currentTarget as HTMLSelectElement).value as "auto" | "de" | "en")}>
-          <option value="auto">{t("settings.language.auto")}</option>
-          <option value="de">Deutsch</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+        <span class="seg">
+          {#each [["auto", t("settings.language.auto")], ["de", "Deutsch"], ["en", "English"]] as [value, label] (value)}
+            <button type="button" aria-pressed={langChoice() === value} onclick={() => setLang(value as "auto" | "de" | "en")}>{label}</button>
+          {/each}
+        </span>
+      </div>
       <div class="field wide">
         <span>{t("settings.file")}</span>
         <div class="path">
@@ -239,7 +267,9 @@
     gap: 16px;
     padding-bottom: 80px;
   }
-  .page-head,
+  .page-head {
+    align-items: center;
+  }
   .card-head,
   .sub-head,
   .vm-head {
@@ -251,12 +281,6 @@
   .head-actions {
     display: flex;
     gap: 8px;
-  }
-  h1 {
-    margin: 0;
-    font-size: 24px;
-    line-height: 32px;
-    font-weight: 500;
   }
   h2 {
     margin: 0;
@@ -278,12 +302,13 @@
     margin-top: 12px;
   }
   .card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--r-panel);
     padding: 20px 24px;
     display: grid;
     gap: 12px;
+    animation: enter var(--enter) var(--ease);
+  }
+  .card > .grid .field:not(:has(input, select)) .seg {
+    max-width: 320px;
   }
   .grid {
     display: grid;
@@ -294,6 +319,7 @@
     grid-column: span 2;
   }
   .vm {
+    background: var(--sunken);
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 12px 16px 16px;

@@ -225,6 +225,7 @@ pub fn run() {
     let (core, load_error) = Core::load();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // The updater is configured only in release builds (tauri.release.conf.json); a plain
             // `tauri build` from source has no update channel and no signing key.

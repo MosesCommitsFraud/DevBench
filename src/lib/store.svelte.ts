@@ -7,7 +7,12 @@ export interface Live {
   checking: boolean;
   /** Pending action label shown on the machine, e.g. while waking up. */
   pending: string | null;
+  /** CPU use of the last polls, oldest first, 0..100. */
+  cpu: number[];
 }
+
+/** How many CPU samples the history keeps (about three minutes at the normal rate). */
+export const HISTORY = 90;
 
 export const store = $state({
   config: { machines: [] } as Config,
@@ -32,13 +37,13 @@ export async function loadConfig() {
 /** Replaces the config and makes sure every machine has a live entry. */
 export function setConfig(config: Config) {
   for (const m of config.machines) {
-    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null };
+    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null, cpu: [] };
   }
   store.config = config;
   if (started) startPolling();
 }
 
-const placeholder: Live = { status: null, error: null, checking: true, pending: null };
+const placeholder: Live = { status: null, error: null, checking: true, pending: null, cpu: [] };
 
 export function live(id: string): Live {
   return store.live[id] ?? placeholder;
@@ -55,10 +60,13 @@ export async function poll(id: string) {
   inFlight.add(id);
   const l = live(id);
   try {
-    l.status = await api.machineStatus(id);
+    const st = await api.machineStatus(id);
+    l.status = st;
     l.error = null;
+    l.cpu = [...l.cpu, st.cpu_percent].slice(-HISTORY);
   } catch (e) {
     l.status = null;
+    l.cpu = [];
     l.error = asAppError(e);
   } finally {
     l.checking = false;

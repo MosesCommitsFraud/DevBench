@@ -6,7 +6,8 @@
   import { t } from "../lib/i18n.svelte";
   import { run } from "../lib/ui.svelte";
 
-  let { machine, vm, onClose }: { machine: Machine; vm: Vm; onClose: () => void } = $props();
+  // A VM's screen, or the machine's own desktop when vm is null
+  let { machine, vm, onClose }: { machine: Machine; vm: Vm | null; onClose: () => void } = $props();
 
   let root: HTMLDivElement;
   let screen: HTMLDivElement;
@@ -14,7 +15,7 @@
   let phase = $state<"connecting" | "connected" | "disconnected" | "password">("connecting");
   let problem = $state("");
   let desktopTitle = $state("");
-  const title = $derived(desktopTitle || `${vm.name} · ${machine.name}`);
+  const title = $derived(desktopTitle || [vm?.name, machine.name].filter(Boolean).join(" · "));
   let fit = $state(localStorage.getItem("devbench.vnc.fit") !== "0");
   let fullscreen = $state(false);
   let password = $state("");
@@ -25,7 +26,7 @@
     problem = "";
     let url: string;
     try {
-      const target = await run(() => api.vncOpen(machine.id, vm.id), true);
+      const target = await run(() => api.vncOpen(machine.id, vm?.id ?? null), true);
       url = target.url;
       desktopTitle = target.title;
     } catch (e) {
@@ -140,7 +141,7 @@
     {#if phase !== "connected"}
       <div class="state">
         {#if phase === "connecting"}
-          <p class="secondary">{t("vnc.connecting", vm.name)}</p>
+          <p class="secondary">{t("vnc.connecting", vm?.name ?? machine.name)}</p>
         {:else if phase === "password"}
           <form onsubmit={sendPassword}>
             <label class="field">
@@ -169,6 +170,7 @@
     display: grid;
     grid-template-rows: 48px minmax(0, 1fr);
     background: var(--bg-deep);
+    animation: enter var(--enter) var(--ease);
   }
   header {
     display: grid;

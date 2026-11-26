@@ -16,7 +16,7 @@
 <svelte:window onclick={onWindowClick} onkeydown={onKey} />
 
 <div class="menu" bind:this={root}>
-  <button class="btn ghost icon" aria-label={label} title={label} aria-expanded={open} onclick={() => (open = !open)}>
+  <button class="btn icon" aria-label={label} title={label} aria-expanded={open} onclick={() => (open = !open)}>
     {@render trigger()}
   </button>
   {#if open}
@@ -46,8 +46,12 @@
     animation: rise var(--menu) var(--ease);
   }
   .list :global(button) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     height: 32px;
-    padding: 0 12px;
+    padding: 0 10px;
+    color: var(--text);
     border: none;
     border-radius: var(--r-control);
     background: transparent;
@@ -58,8 +62,16 @@
   .list :global(button:hover) {
     background: var(--raised);
   }
-  .list :global(button.danger) {
+  .list :global(button svg) {
+    color: var(--text-3);
+  }
+  .list :global(button.danger),
+  .list :global(button.danger svg) {
     color: var(--danger);
+  }
+  .list :global(button:disabled) {
+    opacity: 0.5;
+    cursor: default;
   }
   @keyframes rise {
     from {
