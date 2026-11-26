@@ -303,6 +303,34 @@ mod live_tests {
         pool.exec(&ep, "true", status::STATUS_TIMEOUT).await.unwrap();
         println!("second command on the pooled connection: {:?}", t.elapsed());
 
+        // Terminal through the WebSocket bridge: resize, run a command, read its output.
+        {
+            use futures_util::{SinkExt, StreamExt};
+            use tokio_tungstenite::tungstenite::Message;
+            let conn = pool.get(&ep).await.unwrap();
+            let ch = conn.handle.channel_open_session().await.unwrap();
+            ch.request_pty(false, "xterm-256color", 80, 24, 0, 0, &[]).await.unwrap();
+            ch.request_shell(false).await.unwrap();
+            let bridge = std::sync::Arc::new(vnc::Bridge::default());
+            let url = bridge.register(conn, ch, vnc::Kind::Terminal).await.unwrap();
+            let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+            ws.send(Message::Text(r#"{"cols":120,"rows":40}"#.into())).await.unwrap();
+            ws.send(Message::Binary(b"echo devbench-$((40+2)); stty size; exit\n".to_vec().into())).await.unwrap();
+            let mut out = Vec::new();
+            let read = async {
+                while let Some(Ok(msg)) = ws.next().await {
+                    if let Message::Binary(b) = msg {
+                        out.extend_from_slice(&b);
+                    }
+                }
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(10), read).await.ok();
+            let text = String::from_utf8_lossy(&out);
+            println!("terminal output tail: {:?}", &text[text.len().saturating_sub(200)..]);
+            assert!(text.contains("devbench-42"));
+            assert!(text.contains("40 120"));
+        }
+
         let Some(vm) = m.vms.first() else { return };
         if vm.guest_ssh_user.is_empty() || !st.vms[0].running {
             return;
