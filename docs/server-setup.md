@@ -58,7 +58,7 @@ Nötig, wenn der Gast eine durchgereichte Grafikkarte nutzt (GPU-Passthrough): Q
 3. Einen VNC-Server installieren, z. B. **TightVNC** (frei) als Dienst. In den Einstellungen:
    - Reiter **Access Control**: „Allow loopback connections“ und „Allow only loopback connections“ einschalten. Dann ist VNC von außen gar nicht erreichbar, nur durch den SSH-Tunnel.
    - Port 5900 (Standard).
-   - Ein VNC-Passwort ist optional; ist eins gesetzt, fragt DevBench danach.
+   - Ein VNC-Passwort ist optional; ist eins gesetzt, fragt das DevBench-Fenster danach. Sollen KI-Agenten den Bildschirm nutzen, muss es zusätzlich als `vnc_password` bei der VM eingetragen werden (Klartext in `config.toml`).
 4. Vom Server aus testen: `ssh <gast-benutzer>@<gast-adresse>` muss mit dem Schlüssel klappen.
 
 Mit durchgereichter GPU und ohne angeschlossenen Monitor stellt Windows oft nur eine kleine Auflösung oder gar keinen Desktop bereit. Abhilfe: ein HDMI/DisplayPort-Dummy-Stecker an der Grafikkarte oder ein virtueller Bildschirmtreiber.

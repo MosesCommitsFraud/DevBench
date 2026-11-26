@@ -42,6 +42,7 @@ agent_power = false                # agents may power off/reboot this machine an
                                    # "none":  no VNC button
   vnc_host = "127.0.0.1"           # as seen from the guest ("guest" mode) or from the server ("host" mode)
   vnc_port = 5900
+  vnc_password = ""                # only if the VNC server asks for one; plain text, used by agents (the app window prompts itself)
   agent_access = false             # agents may start/stop this VM, take screenshots, use mouse and keyboard
   agent_exec = false               # agents may run commands and read/write files inside the guest
 
@@ -59,6 +60,7 @@ agent_power = false                # agents may power off/reboot this machine an
   vnc_mode = "host"
   vnc_host = "127.0.0.1"
   vnc_port = 5901                  # see `virsh vncdisplay ubuntu-test`: ":1" means port 5901
+  vnc_password = ""
 
 # A second machine reached through the first one as a jump host.
 [[machines]]

@@ -13,7 +13,8 @@ DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a
 - **Dashboard:** online/offline, uptime, CPU, RAM and disk per server; running state per VM.
 - **Buttons:** Wake-on-LAN, shut down / reboot the server (over SSH, via a narrow sudoers rule), start / shut down / reboot / force off VMs (`virsh` over SSH).
 - **Embedded VNC:** view and control a VM's desktop inside the app (noVNC). DevBench opens the SSH tunnel itself, in-process (via [russh](https://github.com/Eugeny/russh)), including jump hosts. No external tunnel, no separate VNC viewer.
-- **AI agents (MCP):** `devbench mcp` is an MCP server, so Claude and other agents can check status, wake machines, start VMs, run commands and edit files on the server or inside a guest, and take screenshots and drive mouse and keyboard in a VM. Everything is off until enabled per machine/VM; every agent action is logged. See [`docs/agents.md`](docs/agents.md).
+- **Files:** two-pane file manager between this PC, a server and a VM guest over SFTP: copy or move by button or drag and drop, drop files in from Explorer/Finder, transfers with progress and cancel.
+- **AI agents (MCP):** `devbench mcp` is an MCP server, so Claude and other agents can check status, wake machines, start VMs, run commands and edit files on the server or inside a guest, and take screenshots and drive mouse and keyboard in a VM. Everything is off until enabled per machine/VM; the app shows connected agents and logs every agent action. See [`docs/agents.md`](docs/agents.md).
 - **Nothing hardcoded:** all hosts live in a config file in your OS's app config folder, edited in the app's Settings screen; hosts can be imported from `~/.ssh/config`. See [`config.example.toml`](config.example.toml).
 
 **Install:** installers for Windows, macOS and Linux are attached to GitHub Releases; installed copies check for updates on start and update themselves (Linux: AppImage). Releasing is described in [`docs/releasing.md`](docs/releasing.md).
@@ -30,6 +31,8 @@ DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a
 - **Server:** Aufwecken (Wake-on-LAN), Herunterfahren, Neustarten.
 - **VMs (libvirt/KVM):** Starten, Herunterfahren (ACPI), Neustarten, Ausschalten erzwingen.
 - **VNC im Fenster:** Bildschirm einer VM mit Maus und Tastatur bedienen. DevBench baut die SSH-Verbindung selbst auf, auch über einen Sprung-Server (Jump Host) in den Gast. Kein `ssh -L` im Terminal, kein separates VNC-Programm.
+- **Dateien:** Dateimanager mit zwei Spalten zwischen diesem PC, einem Server und einer VM (SFTP), siehe [Dateien übertragen](#dateien-übertragen).
+- **KI-Agenten:** Claude und andere Agenten können Server und VMs über MCP bedienen, siehe [unten](#steuerung-durch-ki-agenten-mcp).
 - **Mehrere Server**, jeder mit beliebig vielen VMs.
 - **Import aus `~/.ssh/config`:** vorhandene Host-Aliasse übernehmen; Benutzer, Port, Schlüssel und ProxyJump werden von dort gelesen, wenn sie in DevBench leer bleiben.
 
@@ -103,6 +106,7 @@ Die eigene Konfiguration gehört **nicht** ins Repository.
 | `guest_ssh_user`, `guest_ssh_port`, `guest_ssh_key` | SSH-Anmeldung im Gast (nur für `vnc_mode = "guest"`) |
 | `vnc_mode` | `"guest"`: VNC-Server im Gast, Zugang per SSH durch den Server in den Gast. `"host"`: QEMUs eigene VNC-Anzeige auf dem Server. `"none"`: kein VNC |
 | `vnc_host`, `vnc_port` | Ziel der Weiterleitung, vom Gast (`guest`) bzw. vom Server (`host`) aus gesehen; meist `127.0.0.1:5900` |
+| `vnc_password` | nur nötig, wenn der VNC-Server ein Passwort verlangt und ein Agent den Bildschirm nutzen soll; steht im Klartext in der Datei (das Fenster der App fragt selbst nach) |
 | `agent_access`, `agent_exec` | Freigaben für KI-Agenten in dieser VM, standardmäßig `false` |
 
 ### SSH-Host-Schlüssel
@@ -144,19 +148,29 @@ Danach `sudo chmod 0440 /etc/sudoers.d/devbench` und als dieser Benutzer mit `su
 
 Schritt für Schritt: [`docs/wake-on-lan.md`](docs/wake-on-lan.md).
 
+## Dateien übertragen
+
+Unter **Dateien** in der Seitenleiste stehen zwei Spalten nebeneinander. Jede zeigt wahlweise **Dieser PC**, einen Server oder eine VM (nur VMs mit eingetragenem `guest_ssh_user`). Die Übertragung läuft über SFTP durch dieselbe SSH-Verbindung, auf dem Server ist nichts zusätzlich nötig.
+
+- **Navigieren:** Pfad ins Feld tippen und Enter drücken, oder über **Gehe zu** zum Home-Ordner, zu Laufwerken oder nach `/` springen. In Windows-Gästen sehen Pfade so aus: `/C:/Users/name`.
+- **Kopieren:** mit den Pfeil-Knöpfen zwischen den Spalten oder Zeilen in die andere Spalte ziehen. Mit gedrückter **Umschalttaste** wird verschoben statt kopiert.
+- **Aus dem Explorer/Finder:** Dateien auf eine Spalte ziehen, sie werden dorthin kopiert.
+- **Ordner:** hoch, neu laden, neuer Ordner, umbenennen (F2), löschen (Entf). Gelöschtes landet **nicht** im Papierkorb.
+- **Übertragungen** erscheinen in einer Liste mit Fortschritt und lassen sich abbrechen.
+
 ## Steuerung durch KI-Agenten (MCP)
 
 DevBench enthält einen MCP-Server, damit Claude und andere Agenten Server und VMs direkt bedienen können: Status, Aufwecken, VMs starten, Befehle und Dateien auf dem Server oder im Gast, und Screenshots, Maus und Tastatur für grafische Programme in der VM. Einrichten in Claude Code:
 
 ```sh
-claude mcp add devbench -- "<Installationsordner>\devbench.exe" mcp
+claude mcp add devbench -- "%LOCALAPPDATA%\DevBench\devbench.exe" mcp
 ```
 
-Agenten sehen nur, was man pro Server und VM in den Einstellungen freigibt (`agent_access`, `agent_exec`, `agent_power`; alles standardmäßig aus). Jede Agenten-Aktion landet in `activity.log` und ist in der App sichtbar. Alle Werkzeuge und Freigaben: [`docs/agents.md`](docs/agents.md).
+Agenten sehen nur, was man pro Server und VM in den Einstellungen freigibt (`agent_access`, `agent_exec`, `agent_power`; alles standardmäßig aus). Unter **Verbundene Agenten** zeigt die App, welche Agenten gerade verbunden sind; jede Agenten-Aktion landet in `activity.log` und ist unter **Agenten-Aktivität** sichtbar. Alle Werkzeuge und Freigaben: [`docs/agents.md`](docs/agents.md).
 
 ## Sicherheit
 
-- DevBench nutzt nur SSH mit Schlüsseln; Passwörter für SSH werden nicht gespeichert.
+- DevBench nutzt nur SSH mit Schlüsseln; Passwörter für SSH werden nicht gespeichert. Einzige Ausnahme ist das optionale `vnc_password` für Agenten, das im Klartext in `config.toml` steht.
 - VNC-Server sollen nur auf `127.0.0.1` lauschen. DevBench leitet die Verbindung durch SSH weiter und öffnet lokal einen WebSocket nur auf `127.0.0.1` mit einem einmaligen Token.
 - Die sudoers-Regel erlaubt genau zwei feste Befehle.
 - KI-Agenten haben nur Zugriff, wo er ausdrücklich freigegeben ist; jede ihrer Aktionen wird protokolliert.
@@ -167,7 +181,6 @@ Agenten sehen nur, was man pro Server und VM in den Einstellungen freigibt (`age
 Noch nicht eingebaut, geplant:
 
 - **RDP** über [IronRDP](https://github.com/Devolutions/IronRDP) (Devolutions): in Windows-VMs und auf einen Linux-Desktop des Servers (gnome-remote-desktop im Headless-Modus oder xrdp), ebenfalls durch den SSH-Tunnel.
-- **Dateiübertragung** zwischen PC, Server und VMs (SFTP).
 - **Logs** ansehen (journald des Servers, libvirt-Logs der VMs).
 
 ## Technik
@@ -178,4 +191,8 @@ Noch nicht eingebaut, geplant:
 
 ## Lizenz / License
 
-*Noch nicht festgelegt. / Not chosen yet.*
+DevBench steht wahlweise unter der [MIT-Lizenz](LICENSE-MIT) oder der [Apache-Lizenz 2.0](LICENSE-APACHE).
+Beiträge werden, sofern nicht ausdrücklich anders angegeben, unter denselben beiden Lizenzen eingebracht.
+
+DevBench is licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+Unless you explicitly state otherwise, any contribution you submit is dual-licensed as above, without additional terms.
