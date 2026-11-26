@@ -1,0 +1,285 @@
+/* DevBench design tokens.
+   Direction: an instrument panel for a home server at night. Quiet navy-tinted chrome,
+   figures in mono, the logo's blue as the one accent, and one signature: the turquoise
+   status LED (the logo's guest circle) next to every machine and VM. */
+
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+  --bg-deep: #0a0f1c;
+  --bg: #0d1322;
+  --card: #121a2c;
+  --raised: #1a2338;
+  --raised-2: #222c44;
+  --text: #eef0f5;
+  --text-2: #a3a9b8;
+  --text-3: #7a8296;
+  --line: rgb(238 240 245 / 0.08);
+  --line-strong: rgb(238 240 245 / 0.14);
+
+  /* Brand: blue #2457e6 (accent), turquoise #2dd4bf (running), navy #0f1b3d, paper #f2f1ec */
+  --accent: #2457e6;
+  --accent-ink: #ffffff;
+  --focus: #6b8ff2;
+  --on: #2dd4bf;
+  --busy: #e8a33d;
+  --danger: #e5484d;
+
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --shadow-float: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --r-control: 8px;
+  --r-card: 14px;
+  --r-panel: 16px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fast: 140ms;
+  --menu: 180ms;
+  --enter: 360ms;
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-deep: #e9e8e2;
+    --bg: #f2f1ec;
+    --card: #fbfaf7;
+    --raised: #eae9e3;
+    --raised-2: #e1e0d9;
+    --text: #0f1b3d;
+    --text-2: #46506a;
+    --text-3: #6a7186;
+    --line: rgb(15 27 61 / 0.09);
+    --line-strong: rgb(15 27 61 / 0.16);
+    --accent: #2457e6;
+    --accent-ink: #ffffff;
+    --focus: #2457e6;
+    --on: #14b8a6;
+    --busy: #c27a12;
+    --danger: #dc2626;
+    --highlight: none;
+    --shadow-float: 0 8px 24px rgb(15 27 61 / 0.08);
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum";
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.muted {
+  color: var(--text-3);
+}
+
+.secondary {
+  color: var(--text-2);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--raised);
+  box-shadow: var(--highlight);
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+.btn:hover {
+  background: var(--raised-2);
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.btn.primary:hover {
+  opacity: 0.92;
+}
+.btn.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.btn.ghost:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+.btn.danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #fff;
+}
+.btn.icon {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+.btn svg {
+  flex: none;
+  color: currentColor;
+}
+
+/* Form fields */
+.field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.field > span {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.field small {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+.input,
+.field input,
+.field select {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  min-width: 0;
+  width: 100%;
+  transition: border-color var(--fast) var(--ease);
+}
+.field input:hover,
+.field select:hover {
+  border-color: var(--text-3);
+}
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--focus);
+}
+.field input::placeholder {
+  color: var(--text-3);
+}
+
+/* Status LED: the one signature detail */
+.led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--raised-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.led.on {
+  background: var(--on);
+  box-shadow: none;
+}
+.led.busy {
+  background: var(--busy);
+  box-shadow: none;
+}
+.led.error {
+  background: var(--danger);
+  box-shadow: none;
+}
+
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* Scrollbars that stay out of the way */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

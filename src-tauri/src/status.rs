@@ -22,6 +22,21 @@ pub struct MachineStatus {
     pub disk_total: u64,
     pub disk_used: u64,
     pub vms: Vec<VmStatus>,
+    /// Raw (total, idle) CPU ticks; CPU usage is the difference between two polls.
+    #[serde(skip)]
+    pub cpu_ticks: Option<(u64, u64)>,
+}
+
+impl MachineStatus {
+    /// Sets `cpu_percent` from the previous poll's ticks, or the average since boot on the first poll.
+    pub fn apply_cpu(&mut self, previous: Option<(u64, u64)>) {
+        let Some((t2, i2)) = self.cpu_ticks else { return };
+        let (t1, i1) = previous.filter(|p| p.0 < t2).unwrap_or((0, 0));
+        let dt = t2 - t1;
+        if dt > 0 {
+            self.cpu_percent = 100.0 * (dt - i2.saturating_sub(i1).min(dt)) as f64 / dt as f64;
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -100,16 +115,7 @@ pub fn parse(out: &str) -> MachineStatus {
                     st.load[i] = x.parse().unwrap_or(0.0);
                 }
             }
-            "cpu" => {
-                if let (Some((t1, i1)), Some((t2, i2))) =
-                    (lines.first().and_then(|l| cpu_ticks(l)), lines.get(1).and_then(|l| cpu_ticks(l)))
-                {
-                    let dt = t2.saturating_sub(t1);
-                    if dt > 0 {
-                        st.cpu_percent = 100.0 * (dt - i2.saturating_sub(i1).min(dt)) as f64 / dt as f64;
-                    }
-                }
-            }
+            "cpu" => st.cpu_ticks = cpu_ticks(first),
             "nproc" => st.cpus = first.trim().parse().unwrap_or(0),
             "mem" => {
                 st.mem_total = kib_field(&lines, "MemTotal:");
@@ -178,7 +184,8 @@ mod tests {
                    @mem\nMemTotal:       30000000 kB\nMemAvailable:   20000000 kB\n\
                    @disk\n/dev/nvme0n1p2 1000 400 600 40% /\n@host\ndevhost\n7.0.0\n\
                    @vm abc\nrunning\n\n@vm def\nshut off\n@vm ghi\nerror: failed to get domain 'x'\n";
-        let st = parse(out);
+        let mut st = parse(out);
+        st.apply_cpu(Some((1000, 800)));
         assert_eq!(st.uptime_secs, 3551);
         assert_eq!(st.cpus, 16);
         assert!((st.cpu_percent - 50.0).abs() < 0.01);

@@ -1,6 +1,8 @@
 //! DevBench: a control center for home servers and their virtual machines.
 
+mod activity;
 mod config;
+mod core;
 mod error;
 mod ssh;
 mod sshconf;
@@ -8,34 +10,25 @@ mod status;
 mod vnc;
 mod wol;
 
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::sync::Arc;
 
-use anyhow::{Context, anyhow};
 use serde::Serialize;
 use tauri::State;
 
-use config::{Config, VncMode};
-use error::CmdResult;
-use ssh::sh_quote;
+use crate::config::Config;
+use crate::core::{Core, PowerAction, VmAction};
+use crate::error::CmdResult;
 
 struct AppState {
-    config: RwLock<Config>,
-    pool: ssh::Pool,
+    core: Core,
     bridge: Arc<vnc::Bridge>,
     /// A config file that could not be read at start; shown in the UI instead of failing silently.
     startup_error: Option<String>,
 }
 
-impl AppState {
-    fn snapshot(&self) -> Config {
-        self.config.read().unwrap().clone()
-    }
-}
-
 #[tauri::command]
 fn get_config(state: State<'_, AppState>) -> Config {
-    state.snapshot()
+    state.core.config()
 }
 
 #[tauri::command]
@@ -44,20 +37,13 @@ fn startup_error(state: State<'_, AppState>) -> Option<String> {
 }
 
 #[tauri::command]
-fn save_config(state: State<'_, AppState>, mut config: Config) -> CmdResult<Config> {
-    config.normalize()?;
-    config::save(&config)?;
-    *state.config.write().unwrap() = config.clone();
-    state.pool.clear();
-    Ok(config)
+fn save_config(state: State<'_, AppState>, config: Config) -> CmdResult<Config> {
+    Ok(state.core.save_config(config)?)
 }
 
 #[tauri::command]
 fn reload_config(state: State<'_, AppState>) -> CmdResult<Config> {
-    let config = config::load()?;
-    *state.config.write().unwrap() = config.clone();
-    state.pool.clear();
-    Ok(config)
+    Ok(state.core.reload_config()?)
 }
 
 #[tauri::command]
@@ -72,84 +58,37 @@ fn ssh_config_hosts() -> Vec<sshconf::SshHostEntry> {
 
 #[tauri::command]
 async fn machine_status(state: State<'_, AppState>, machine_id: String) -> CmdResult<status::MachineStatus> {
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    let ep = sshconf::machine_endpoint(m)?;
-    let out = state.pool.exec(&ep, &status::script(m), status::STATUS_TIMEOUT).await?;
-    Ok(status::parse(&out.stdout))
+    Ok(state.core.status(&machine_id).await?)
 }
 
 #[tauri::command]
 async fn wake(state: State<'_, AppState>, machine_id: String) -> CmdResult<()> {
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    if m.mac.trim().is_empty() {
-        return Err(anyhow!("{} has no MAC address configured", m.name).into());
-    }
-    wol::wake(&m.mac, &m.wol_broadcast, m.wol_port).await?;
-    Ok(())
+    Ok(state.core.wake(&machine_id).await?)
 }
 
 #[tauri::command]
 async fn power(state: State<'_, AppState>, machine_id: String, action: String) -> CmdResult<()> {
-    let verb = match action.as_str() {
-        "poweroff" | "reboot" => action.as_str(),
-        _ => return Err(anyhow!("unknown power action '{action}'").into()),
-    };
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    let ep = sshconf::machine_endpoint(m)?;
-    let out = state.pool.exec(&ep, &format!("sudo -n systemctl {verb}"), Duration::from_secs(20)).await?;
-    state.pool.evict(&ep);
-    match out.code {
-        Some(0) | None => Ok(()),
-        Some(_) if out.stderr.contains("password") => Err(anyhow!(
-            "sudo asks for a password. Allow 'systemctl {verb}' without one (see docs/sudoers-devbench in the DevBench repository)."
-        )
-        .into()),
-        Some(c) => Err(anyhow!("systemctl {verb} failed ({c}): {}", out.stderr.trim()).into()),
-    }
+    Ok(state.core.power(&machine_id, PowerAction::parse(&action)?).await?)
 }
 
 #[tauri::command]
 async fn vm_action(state: State<'_, AppState>, machine_id: String, vm_id: String, action: String) -> CmdResult<()> {
-    let verb = match action.as_str() {
-        "start" | "shutdown" | "reboot" | "destroy" => action.as_str(),
-        _ => return Err(anyhow!("unknown VM action '{action}'").into()),
-    };
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    let vm = m.vms.iter().find(|v| v.id == vm_id).context("unknown VM")?;
-    let ep = sshconf::machine_endpoint(m)?;
-    let cmd = format!("LC_ALL=C virsh -c {} {verb} {}", sh_quote(&vm.libvirt_uri), sh_quote(&vm.libvirt_name));
-    let out = state.pool.exec(&ep, &cmd, Duration::from_secs(60)).await?;
-    if out.code != Some(0) {
-        let msg = if out.stderr.trim().is_empty() { out.stdout.trim() } else { out.stderr.trim() };
-        return Err(anyhow!("virsh {verb}: {msg}").into());
-    }
-    Ok(())
+    Ok(state.core.vm_action(&machine_id, &vm_id, VmAction::parse(&action)?).await?)
 }
 
 #[tauri::command]
 async fn list_domains(state: State<'_, AppState>, machine_id: String, uri: String) -> CmdResult<Vec<String>> {
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    let ep = sshconf::machine_endpoint(m)?;
-    let uri = if uri.trim().is_empty() { "qemu:///system".to_string() } else { uri };
-    let out = state
-        .pool
-        .exec(&ep, &format!("LC_ALL=C virsh -c {} list --all --name", sh_quote(&uri)), Duration::from_secs(20))
-        .await?;
-    if out.code != Some(0) {
-        return Err(anyhow!("virsh list: {}", out.stderr.trim()).into());
-    }
-    Ok(out.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(state.core.list_domains(&machine_id, &uri).await?)
 }
 
 #[tauri::command]
 fn trust_host_key(state: State<'_, AppState>, host: String, port: u16, key: String) -> CmdResult<()> {
-    state.pool.trust(&host, port, &key)?;
-    Ok(())
+    Ok(state.core.trust_host_key(&host, port, &key)?)
+}
+
+#[tauri::command]
+fn activity(limit: usize) -> Vec<activity::Entry> {
+    activity::recent(limit.min(1000))
 }
 
 #[derive(Serialize)]
@@ -160,46 +99,27 @@ struct VncTarget {
 
 #[tauri::command]
 async fn vnc_open(state: State<'_, AppState>, machine_id: String, vm_id: String) -> CmdResult<VncTarget> {
-    let cfg = state.snapshot();
-    let m = cfg.machine(&machine_id)?;
-    let vm = m.vms.iter().find(|v| v.id == vm_id).context("unknown VM")?;
-    let ep = sshconf::machine_endpoint(m)?;
-    let (conn, channel) = match vm.vnc_mode {
-        VncMode::None => return Err(anyhow!("VNC is switched off for {}", vm.name).into()),
-        VncMode::Host => state.pool.forward(&ep, &vm.vnc_host, vm.vnc_port).await?,
-        VncMode::Guest => {
-            if vm.guest_ssh_user.trim().is_empty() {
-                return Err(anyhow!("{}: set the guest SSH user in the settings", vm.name).into());
-            }
-            let addr = status::guest_address(&state.pool, &ep, vm).await?;
-            let guest = sshconf::guest_endpoint(&ep, vm, &addr);
-            state
-                .pool
-                .forward(&guest, &vm.vnc_host, vm.vnc_port)
-                .await
-                .with_context(|| format!("VNC server in {} ({}:{})", vm.name, vm.vnc_host, vm.vnc_port))?
-        }
-    };
+    let (conn, channel, title) = state.core.vnc_channel(&machine_id, &vm_id).await?;
     let url = state.bridge.register(conn, channel).await?;
-    Ok(VncTarget { url, title: format!("{} · {}", vm.name, m.name) })
+    Ok(VncTarget { url, title })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (config, load_error) = match config::load() {
-        Ok(c) => (c, None),
-        Err(e) => (Config::default(), Some(format!("{e:#}"))),
-    };
-    let known_hosts = config::config_dir().map(|d| d.join("known_hosts")).unwrap_or_else(|_| "known_hosts".into());
-
+    let (core, load_error) = Core::load();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState {
-            config: RwLock::new(config),
-            pool: ssh::Pool::new(known_hosts),
-            bridge: Default::default(),
-            startup_error: load_error,
+        .setup(|app| {
+            // The updater is configured only in release builds (tauri.release.conf.json); a plain
+            // `tauri build` from source has no update channel and no signing key.
+            #[cfg(desktop)]
+            if app.config().plugins.0.contains_key("updater") {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+            Ok(())
         })
+        .manage(AppState { core, bridge: Default::default(), startup_error: load_error })
         .invoke_handler(tauri::generate_handler![
             get_config,
             startup_error,
@@ -214,6 +134,7 @@ pub fn run() {
             list_domains,
             trust_host_key,
             vnc_open,
+            activity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running DevBench");

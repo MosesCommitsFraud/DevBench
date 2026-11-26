@@ -30,6 +30,12 @@ pub struct Machine {
     pub mac: String,
     pub wol_broadcast: String,
     pub wol_port: u16,
+    /// AI agents (MCP) may see this machine: status, Wake-on-LAN, its VM list.
+    pub agent_access: bool,
+    /// Agents may run shell commands and read/write files on the machine.
+    pub agent_exec: bool,
+    /// Agents may power off or reboot the machine and force VMs off.
+    pub agent_power: bool,
     pub vms: Vec<Vm>,
 }
 
@@ -46,6 +52,9 @@ impl Default for Machine {
             mac: String::new(),
             wol_broadcast: "255.255.255.255".into(),
             wol_port: 9,
+            agent_access: false,
+            agent_exec: false,
+            agent_power: false,
             vms: Vec::new(),
         }
     }
@@ -78,6 +87,10 @@ pub struct Vm {
     pub vnc_mode: VncMode,
     pub vnc_host: String,
     pub vnc_port: u16,
+    /// Agents may start/stop the VM, take screenshots and use mouse and keyboard.
+    pub agent_access: bool,
+    /// Agents may run commands and read/write files inside the guest.
+    pub agent_exec: bool,
 }
 
 impl Default for Vm {
@@ -94,16 +107,32 @@ impl Default for Vm {
             vnc_mode: VncMode::Guest,
             vnc_host: "127.0.0.1".into(),
             vnc_port: 5900,
+            agent_access: false,
+            agent_exec: false,
         }
     }
 }
 
+impl Machine {
+    /// Finds a VM by id, else by display name or libvirt name (case-insensitive).
+    pub fn vm(&self, key: &str) -> Result<&Vm> {
+        let k = key.trim();
+        self.vms
+            .iter()
+            .find(|v| v.id == k)
+            .or_else(|| self.vms.iter().find(|v| v.name.eq_ignore_ascii_case(k) || v.libvirt_name.eq_ignore_ascii_case(k)))
+            .with_context(|| format!("{} has no VM '{key}'", self.name))
+    }
+}
+
 impl Config {
-    pub fn machine(&self, id: &str) -> Result<&Machine> {
+    /// Finds a machine by id, or else by name (case-insensitive).
+    pub fn machine(&self, key: &str) -> Result<&Machine> {
         self.machines
             .iter()
-            .find(|m| m.id == id)
-            .with_context(|| format!("unknown machine '{id}'"))
+            .find(|m| m.id == key)
+            .or_else(|| self.machines.iter().find(|m| m.name.eq_ignore_ascii_case(key.trim())))
+            .with_context(|| format!("unknown machine '{key}'"))
     }
 
     /// Checks the values the app relies on and fills in missing ids.
