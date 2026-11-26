@@ -1,6 +1,6 @@
 [package]
 name = "devbench"
-version = "0.1.0"
+version = "0.2.0"
 description = "Control center for home servers and their virtual machines"
 authors = ["DevBench contributors"]
 license = "MIT OR Apache-2.0"
