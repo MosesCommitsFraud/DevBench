@@ -39,7 +39,7 @@
   const dot = $derived(
     pending || vs?.state === "in shutdown" || vs?.state === "paused" ? "busy" : vs?.state === "crashed" ? "error" : running ? "on" : "",
   );
-  const state = $derived(pending ? `${pending} …` : isDesktop ? t("vm.desktopRow") : vs ? vmStateLabel(vs.state) : "–");
+  const stateText = $derived(pending ? `${pending} …` : isDesktop ? t("vm.desktopRow") : vs ? vmStateLabel(vs.state) : "–");
   const facts = $derived(
     vm && vs
       ? [vs.vcpus ? t("vm.vcpus", vs.vcpus) : "", vs.memory ? gb(vs.memory) : "", vs.ip, running && vs.cpu_percent != null ? `CPU ${Math.round(vs.cpu_percent)} %` : ""].filter(Boolean)
@@ -47,13 +47,27 @@
         ? [`VNC :${machine.desktop_vnc_port}`]
         : [vm?.libvirt_name ?? ""],
   );
+
+  // The larger picture floats fixed to the window, so the rounded group around the rows (which
+  // clips its children) cannot cut it off. It sits above the thumbnail, or below it when there is
+  // no room, and stays inside the window sideways.
+  const BIG_W = 360;
+  const BIG_H = (BIG_W * 9) / 16;
+  let bigPos = $state({ left: 0, top: 0 });
+  function placeBig(e: PointerEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const gap = 8;
+    const top = r.top - gap - BIG_H >= gap ? r.top - gap - BIG_H : Math.min(r.bottom + gap, window.innerHeight - BIG_H - gap);
+    const left = Math.max(gap, Math.min(r.left, window.innerWidth - BIG_W - gap));
+    bigPos = { left, top };
+  }
 </script>
 
 <div class="row" class:off={!running}>
-  <button class="thumb" disabled={!canScreen} onclick={() => onOpen("screen")} aria-label={t("vm.openScreen")}>
+  <button class="thumb" disabled={!canScreen} onclick={() => onOpen("screen")} onpointerenter={placeBig} onpointermove={placeBig} aria-label={t("vm.openScreen")}>
     {#if running && preview?.url}
       <img src={preview.url} alt="" draggable="false" />
-      <span class="big" aria-hidden="true"><img src={preview.url} alt="" draggable="false" /></span>
+      <span class="big" aria-hidden="true" style:left="{bigPos.left}px" style:top="{bigPos.top}px"><img src={preview.url} alt="" draggable="false" /></span>
     {:else}
       <Monitor size={14} strokeWidth={1.5} />
     {/if}
@@ -65,7 +79,7 @@
       <span class="label">{isDesktop ? t("machine.desktop") : vm!.name}</span>
     </div>
     <div class="sub">
-      <span class="state">{#if dot}<span class="dot {dot}"></span>{/if}{state}</span>
+      <span class="state">{#if dot}<span class="dot {dot}"></span>{/if}{stateText}</span>
       {#each facts as f (f)}<span class="fact mono">{f}</span>{/each}
     </div>
   </div>
@@ -131,9 +145,7 @@
     object-position: top center;
   }
   .big {
-    position: absolute;
-    left: 0;
-    bottom: calc(100% + 8px);
+    position: fixed;
     z-index: 30;
     width: 360px;
     aspect-ratio: 16 / 9;
