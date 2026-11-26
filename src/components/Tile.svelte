@@ -2,60 +2,62 @@
   import { hue, monogram } from "../lib/identity";
   import { theme } from "../lib/theme.svelte";
 
-  // A machine's or VM's identity: its monogram on its colour, with an optional status dot.
+  // A machine's or VM's monogram on a tint of its colour (like T3 Code's project monograms),
+  // with an optional status dot in the corner.
   let {
     name,
     color = "",
-    size = 32,
+    size = 16,
     status = null,
   }: { name: string; color?: string; size?: number; status?: "on" | "off" | "busy" | "error" | null } = $props();
 
   const h = $derived(hue(name, color));
   const c = $derived(theme() === "dark" ? h.dark : h.light);
+  const text = $derived(monogram(name));
 </script>
 
-<span
-  class="tile"
-  style:--c={c}
-  style:width="{size}px"
-  style:height="{size}px"
-  style:font-size="{Math.round(size * (monogram(name).length > 1 ? 0.38 : 0.46))}px"
-  style:border-radius="{Math.round(size * 0.3)}px"
-  aria-hidden="true"
->
-  {monogram(name)}
-  {#if status}<i class="dot {status}" style:width="{Math.max(8, size * 0.28)}px" style:height="{Math.max(8, size * 0.28)}px"></i>{/if}
+<span class="tile" style:--c={c} style:width="{size}px" style:height="{size}px" aria-hidden="true">
+  <svg viewBox="0 0 16 16">
+    <text x="8" y="10.8" text-anchor="middle" font-size="8.25" font-weight="700" textLength={text.length === 1 ? 6 : 12} lengthAdjust="spacingAndGlyphs">{text}</text>
+  </svg>
+  {#if status}<i class="corner {status}"></i>{/if}
 </span>
 
 <style>
   .tile {
     position: relative;
     flex: none;
-    display: inline-grid;
-    place-items: center;
-    font-family: var(--display);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    display: inline-flex;
     color: var(--c);
-    background: color-mix(in srgb, var(--c) 16%, var(--card));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 28%, transparent);
+  }
+  svg {
+    width: 100%;
+    height: 100%;
+    border-radius: 25%;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    font-family: var(--mono);
     user-select: none;
   }
-  .dot {
+  text {
+    fill: currentColor;
+  }
+  .corner {
     position: absolute;
     right: -2px;
     bottom: -2px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background: var(--raised-2);
-    box-shadow: 0 0 0 2px var(--dot-ring, var(--card));
+    background: color-mix(in srgb, var(--text-3) 70%, var(--card));
+    box-shadow: 0 0 0 1.5px var(--dot-ring, var(--card));
   }
-  .dot.on {
+  .corner.on {
     background: var(--on);
   }
-  .dot.busy {
+  .corner.busy {
     background: var(--busy);
   }
-  .dot.error {
+  .corner.error {
     background: var(--danger);
   }
 </style>

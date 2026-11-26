@@ -1,101 +1,95 @@
 /* DevBench design tokens.
-   Direction: a workbench for a home server. Calm, exact, a little warm. Both themes come from
-   the logo: paper and navy for the surfaces, the host circle's blue as the one accent, the guest
-   circle's turquoise only for "running". Signature: the status LED next to every machine and VM. */
+   Direction: the quiet, dense look of T3 Code. Neutral surfaces (near-black in dark, near-white
+   in light), hairline borders, grouped rows instead of cards, small labels, figures in mono.
+   Colour is rare: the logo's blue for the primary action and selection, its turquoise for
+   "running", amber and red only for warnings. */
 
-@import "@fontsource/ibm-plex-sans/400.css";
-@import "@fontsource/ibm-plex-sans/500.css";
-@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource-variable/inter/opsz.css";
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource-variable/outfit/wght.css";
 @import "@fontsource/caveat/500.css";
 
-/* Dark: navy ink, the logo's overlap colour stepped up into surfaces */
+/* Dark */
 :root,
 :root[data-theme="dark"] {
-  --bg-deep: #0a0e1a;
-  --bg: #0e1322;
-  --card: #131a2c;
-  --raised: #1a2238;
-  --raised-2: #222b44;
-  --sunken: #0b1020;
-  --text: #eceef4;
-  --text-2: #a5acbd;
-  --text-3: #767e93;
-  --line: rgb(236 238 244 / 0.07);
-  --line-strong: rgb(236 238 244 / 0.13);
+  --bg-deep: #0a0a0b;
+  --bg: #000000;
+  --card: #0f0f10;
+  --raised: rgb(255 255 255 / 0.05);
+  --raised-2: rgb(255 255 255 / 0.09);
+  --sunken: #070708;
+  --text: #ededed;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.12);
 
-  --accent: #3a6cf0;
+  --accent: #3b6ef5;
   --accent-ink: #ffffff;
-  --accent-text: #8aa8f7;
-  --accent-soft: rgb(58 108 240 / 0.16);
+  --accent-text: #86a6f8;
+  --accent-soft: rgb(59 110 245 / 0.16);
   --focus: #6b8ff2;
   --on: #2dd4bf;
-  --on-soft: rgb(45 212 191 / 0.14);
-  --busy: #e8a33d;
-  --danger: #ef5a5f;
-  --danger-soft: rgb(239 90 95 / 0.14);
-  --chart: #3a6cf0;
-  --chart-fill: rgb(58 108 240 / 0.22);
-  --sketch: rgb(236 238 244 / 0.42);
+  --on-soft: rgb(45 212 191 / 0.12);
+  --busy: #f59e0b;
+  --danger: #f05252;
+  --danger-soft: rgb(240 82 82 / 0.12);
+  --sketch: rgb(255 255 255 / 0.28);
 
   --highlight: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-card: none;
-  --shadow-float: 0 12px 32px rgb(0 0 0 / 0.45);
+  --shadow-float: 0 0 0 1px rgb(255 255 255 / 0.1), 0 24px 64px -24px rgb(0 0 0 / 0.8);
 
   color-scheme: dark;
 }
 
-/* Light: paper, navy ink */
+/* Light */
 :root[data-theme="light"] {
-  --bg-deep: #ebe9e2;
-  --bg: #f2f1ec;
-  --card: #fbfaf7;
-  --raised: #ecebe4;
-  --raised-2: #e2e0d8;
-  --sunken: #f6f5f1;
-  --text: #0f1b3d;
-  --text-2: #475170;
-  --text-3: #6b7287;
-  --line: rgb(15 27 61 / 0.08);
-  --line-strong: rgb(15 27 61 / 0.15);
+  --bg-deep: #fafafa;
+  --bg: #fcfcfc;
+  --card: #ffffff;
+  --raised: #f4f4f5;
+  --raised-2: #e4e4e7;
+  --sunken: #f7f7f8;
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #71717a;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
 
   --accent: #2457e6;
   --accent-ink: #ffffff;
   --accent-text: #1d47c0;
-  --accent-soft: rgb(36 87 230 / 0.1);
+  --accent-soft: rgb(36 87 230 / 0.08);
   --focus: #2457e6;
-  --on: #12a594;
-  --on-soft: rgb(18 165 148 / 0.12);
-  --busy: #b86e0a;
-  --danger: #d33a3f;
-  --danger-soft: rgb(211 58 63 / 0.1);
-  --chart: #2457e6;
-  --chart-fill: rgb(36 87 230 / 0.14);
-  --sketch: rgb(15 27 61 / 0.4);
+  --on: #0d9488;
+  --on-soft: rgb(13 148 136 / 0.1);
+  --busy: #d97706;
+  --danger: #dc2626;
+  --danger-soft: rgb(220 38 38 / 0.08);
+  --sketch: rgb(24 24 27 / 0.3);
 
   --highlight: none;
-  --shadow-card: 0 1px 2px rgb(15 27 61 / 0.04);
-  --shadow-float: 0 12px 28px rgb(15 27 61 / 0.12);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-float: 0 0 0 1px rgb(0 0 0 / 0.08), 0 16px 40px -18px rgb(0 0 0 / 0.3);
 
   color-scheme: light;
 }
 
 :root {
-  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font: "Inter Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  /* Headings and big figures: round and friendly; notes in empty states: by hand */
-  --display: "Outfit Variable", "IBM Plex Sans", system-ui, sans-serif;
+  --display: var(--font);
+  /* Only for the little drawings in empty states */
   --hand: "Caveat", "Segoe Print", cursive;
 
   --r-control: 8px;
-  --r-card: 14px;
-  --r-panel: 20px;
+  --r-card: 10px;
+  --r-panel: 12px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --fast: 140ms;
   --menu: 180ms;
-  --enter: 360ms;
+  --enter: 280ms;
 }
 
 * {
@@ -112,7 +106,7 @@ body {
   font-size: 14px;
   line-height: 20px;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "tnum";
+  font-feature-settings: "cv11", "tnum";
 }
 
 #app {
@@ -149,14 +143,15 @@ select {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: var(--r-control);
-  border: 1px solid var(--line);
-  background: var(--raised);
-  box-shadow: var(--highlight);
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
   color: var(--text);
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -167,7 +162,7 @@ select {
     transform var(--fast) var(--ease);
 }
 .btn:hover {
-  background: var(--raised-2);
+  background: var(--raised);
 }
 .btn:active {
   transform: scale(0.98);
@@ -210,7 +205,7 @@ select {
   background: var(--danger-soft);
 }
 .btn.icon {
-  width: 32px;
+  width: 30px;
   padding: 0;
   justify-content: center;
 }
@@ -374,11 +369,9 @@ select {
 }
 .page-head h1 {
   margin: 0;
-  font-family: var(--display);
-  font-size: 26px;
-  line-height: 32px;
+  font-size: 20px;
+  line-height: 28px;
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 .page-head p {
   margin: 4px 0 0;
@@ -396,5 +389,62 @@ select {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+/* A group of rows, divided by hairlines (T3 Code's settings group) */
+.rows {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.rows > * + * {
+  border-top: 1px solid var(--line);
+}
+
+/* Tiny label above a figure or a section */
+.eyebrow {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Status dot with an optional ping while something is in progress */
+.dot {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-3) 55%, transparent);
+}
+.dot.on {
+  background: var(--on);
+}
+.dot.busy {
+  background: var(--busy);
+}
+.dot.busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--busy);
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.dot.error {
+  background: var(--danger);
+}
+@keyframes ping {
+  75%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
   }
 }

@@ -126,7 +126,7 @@
     <section class="card">
       <div class="card-head">
         <div class="named">
-          <Tile name={m.name || m.ssh_host || "?"} color={m.color} size={32} />
+          <Tile name={m.name || m.ssh_host || "?"} color={m.color} size={20} />
           <h2>{m.name || m.ssh_host || t("settings.addMachine")}</h2>
         </div>
         <button class="btn ghost" onclick={() => draft.machines.splice(mi, 1)}><Trash2 size={16} strokeWidth={1.5} />{t("settings.removeMachine")}</button>
@@ -182,7 +182,7 @@
         <div class="vm">
           <div class="vm-head">
             <div class="named">
-              <Tile name={vm.name || vm.libvirt_name || "VM"} color={vm.color} size={26} />
+              <Tile name={vm.name || vm.libvirt_name || "VM"} color={vm.color} size={16} />
               <span class="vm-title">{vm.name || vm.libvirt_name || "VM"}</span>
             </div>
             <button class="btn ghost" onclick={() => m.vms.splice(vi, 1)}><Trash2 size={16} strokeWidth={1.5} />{t("settings.removeVm")}</button>

@@ -16,7 +16,7 @@
 <svelte:window onclick={onWindowClick} onkeydown={onKey} />
 
 <div class="menu" bind:this={root}>
-  <button class="btn icon" aria-label={label} title={label} aria-expanded={open} onclick={() => (open = !open)}>
+  <button class="btn ghost icon" aria-label={label} title={label} aria-expanded={open} onclick={() => (open = !open)}>
     {@render trigger()}
   </button>
   {#if open}

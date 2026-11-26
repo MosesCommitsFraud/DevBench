@@ -191,6 +191,10 @@ const en = {
   "update.badge": "Update",
 
   "error.config": "The config file could not be read",
+  "machine.upFor": "Online for {0}",
+  "machine.ofTotal": "of {0}",
+  "machine.asleepWake": "Asleep. Wake it over the network with Wake-on-LAN",
+  "vm.desktopRow": "Desktop of the server",
   "machine.desktopOf": "The desktop of {0}",
   "machine.freeOf": "{0} free of {1}",
   "machine.sleeping": "sleeping …",
@@ -462,6 +466,10 @@ const de: Record<Key, string> = {
   "update.badge": "Update",
 
   "error.config": "Die Konfigurationsdatei konnte nicht gelesen werden",
+  "machine.upFor": "Online seit {0}",
+  "machine.ofTotal": "von {0}",
+  "machine.asleepWake": "Schläft gerade. Per Wake-on-LAN über das Netzwerk aufwecken",
+  "vm.desktopRow": "Desktop des Servers",
   "machine.desktopOf": "Der Desktop von {0}",
   "machine.freeOf": "{0} frei von {1}",
   "machine.sleeping": "schläft gerade …",

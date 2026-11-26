@@ -5,7 +5,8 @@
   import { theme } from "../lib/theme.svelte";
 
   // Swatches for a machine's or VM's colour; "auto" follows the name.
-  let { value = $bindable(""), name }: { value: string; name: string } = $props();
+  // `value` may be missing in configs written before colours existed; that means "auto".
+  let { value = $bindable(), name }: { value: string | undefined; name: string } = $props();
   const auto = $derived(hue(name));
 </script>
 
@@ -14,12 +15,12 @@
     type="button"
     class="swatch auto"
     role="radio"
-    aria-checked={value === ""}
+    aria-checked={!value}
     title={t("field.color.auto")}
     style:--c={theme() === "dark" ? auto.dark : auto.light}
     onclick={() => (value = "")}
   >
-    {#if value === ""}<Check size={13} strokeWidth={2.5} />{:else}<Wand size={13} strokeWidth={2} />{/if}
+    {#if !value}<Check size={13} strokeWidth={2.5} />{:else}<Wand size={13} strokeWidth={2} />{/if}
   </button>
   {#each HUES as h (h.key)}
     <button

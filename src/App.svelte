@@ -134,13 +134,13 @@
           {#each store.config.machines as m (m.id)}
             {@const l = live(m.id)}
             <button class="node" onclick={() => scrollTo(m.id)}>
-              <Tile name={m.name} color={m.color} size={22} status={l.status?.online ? "on" : l.checking || l.pending ? "busy" : "off"} />
+              <Tile name={m.name} color={m.color} size={16} status={l.status?.online ? "on" : l.checking || l.pending ? "busy" : "off"} />
               <span class="label">{m.name}</span>
             </button>
             {#each m.vms as v (v.id)}
               {@const running = !!l.status?.vms.find((x) => x.id === v.id)?.running}
               <button class="node vm" class:dim={!running} onclick={() => (running && v.vnc_mode !== "none" ? open("screen", m, v) : scrollTo(m.id))}>
-                <Tile name={v.name} color={v.color} size={18} status={running ? "on" : null} />
+                <Tile name={v.name} color={v.color} size={14} status={running ? "on" : null} />
                 <span class="label">{v.name}</span>
               </button>
             {/each}
@@ -232,9 +232,9 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 34px;
+    height: 32px;
     padding: 0 6px 0 10px;
-    border-radius: 10px;
+    border-radius: var(--r-control);
     border: 1px solid var(--line);
     background: var(--card);
     color: var(--text-3);
@@ -283,11 +283,8 @@
     color: var(--text);
   }
   .nav.active {
-    background: var(--card);
+    background: var(--raised);
     color: var(--text);
-    box-shadow:
-      0 0 0 1px var(--line),
-      var(--highlight);
   }
   .nav :global(svg) {
     color: var(--text-3);
@@ -307,8 +304,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 32px;
-    padding: 0 8px 0 5px;
+    height: 30px;
+    padding: 0 8px;
     border: none;
     border-radius: var(--r-control);
     background: transparent;
@@ -324,7 +321,7 @@
   }
   .node.vm {
     height: 28px;
-    margin-left: 14px;
+    margin-left: 12px;
     color: var(--text-2);
     font-size: 13px;
   }
@@ -355,15 +352,15 @@
     background: var(--on-soft);
   }
   .count.update {
-    color: var(--accent-ink);
-    background: var(--accent);
+    color: var(--accent-text);
+    background: var(--accent-soft);
   }
   main {
     overflow-y: auto;
     padding: 28px 32px 48px;
   }
   main > :global(*) {
-    max-width: 1280px;
+    max-width: 1080px;
     margin: 0 auto;
   }
   main.fill {
@@ -375,7 +372,7 @@
   }
   .machines {
     display: grid;
-    gap: 20px;
+    gap: 36px;
     animation: enter var(--enter) var(--ease);
   }
   .empty {
