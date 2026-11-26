@@ -276,6 +276,14 @@ async fn agent_auth(handle: &mut Handle<Client>, user: &str) -> Result<bool> {
     Ok(false)
 }
 
+/// A command line that runs a PowerShell script on Windows, whatever OpenSSH's default shell
+/// there is (cmd or PowerShell): the script travels base64-encoded, so nothing needs quoting.
+pub fn powershell(script: &str) -> String {
+    use base64::Engine;
+    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    format!("powershell -NoProfile -NonInteractive -EncodedCommand {}", base64::engine::general_purpose::STANDARD.encode(utf16))
+}
+
 /// Quotes a value for a POSIX shell.
 pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))

@@ -19,6 +19,8 @@ use crate::files::{self, Drive, Fs, Location, Progress, Transfer};
 use crate::ssh::{self, Conn, ExecOutput, sh_quote};
 use crate::sshconf::{self, Endpoint};
 use crate::status::{self, MachineStatus};
+use crate::forward;
+use crate::guest;
 use crate::wol;
 
 /// (rx, tx) byte counters and when they were read.
@@ -41,6 +43,8 @@ pub struct Core {
     sftp: tokio::sync::Mutex<HashMap<String, (Arc<Conn>, Arc<SftpSession>)>>,
     /// Cancel flags of running file transfers.
     transfers: std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Systems (per endpoint) known to be Windows (true) or Linux (false), for `exec_either`.
+    windows_hosts: std::sync::Mutex<HashMap<String, bool>>,
     /// When the config file was last read, to pick up changes made by another process.
     config_stamp: std::sync::Mutex<Option<std::time::SystemTime>>,
 }
@@ -107,7 +111,7 @@ impl Core {
             Err(e) => (Config::default(), Some(format!("{e:#}"))),
         };
         let known_hosts = config::config_dir().map(|d| d.join("known_hosts")).unwrap_or_else(|_| "known_hosts".into());
-        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), net: Default::default(), vm_cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default(), config_stamp: std::sync::Mutex::new(config_mtime()) }, err)
+        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), net: Default::default(), vm_cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default(), windows_hosts: Default::default(), config_stamp: std::sync::Mutex::new(config_mtime()) }, err)
     }
 
     pub fn config(&self) -> Config {
@@ -266,11 +270,8 @@ impl Core {
         Ok(out.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
     }
 
-    /// The SSH endpoint of a guest (through its machine).
-    async fn guest(&self, m: &Machine, vm: &Vm, ep: &Endpoint) -> Result<Endpoint> {
-        if vm.guest_ssh_user.trim().is_empty() {
-            bail!("{} / {}: set the guest SSH user in the settings", m.name, vm.name);
-        }
+    /// The guest's address as libvirt knows it (or as configured), reused for a minute.
+    async fn guest_addr(&self, m: &Machine, vm: &Vm, ep: &Endpoint) -> Result<String> {
         let key = format!("{}/{}", m.id, vm.id);
         let cached = self
             .guest_addrs
@@ -279,15 +280,82 @@ impl Core {
             .get(&key)
             .filter(|(_, t)| t.elapsed().as_secs() < 60)
             .map(|(a, _)| a.clone());
-        let addr = match cached {
-            Some(a) => a,
-            None => {
-                let a = status::guest_address(&self.pool, ep, vm).await?;
-                self.guest_addrs.lock().unwrap().insert(key, (a.clone(), Instant::now()));
-                a
-            }
-        };
+        if let Some(a) = cached {
+            return Ok(a);
+        }
+        let a = status::guest_address(&self.pool, ep, vm).await?;
+        self.guest_addrs.lock().unwrap().insert(key, (a.clone(), Instant::now()));
+        Ok(a)
+    }
+
+    /// The SSH endpoint of a guest (through its machine).
+    async fn guest(&self, m: &Machine, vm: &Vm, ep: &Endpoint) -> Result<Endpoint> {
+        if vm.guest_ssh_user.trim().is_empty() {
+            bail!("{} / {}: set the guest SSH user in the settings", m.name, vm.name);
+        }
+        let addr = self.guest_addr(m, vm, ep).await?;
         Ok(sshconf::guest_endpoint(ep, vm, &addr))
+    }
+
+    /// A forwarded TCP connection to `host:port` as a machine or guest sees it ("localhost" is
+    /// its own port). A guest without SSH is reached from its machine at the guest's address,
+    /// which only works for ports the guest opens to its network.
+    pub async fn port_channel(&self, machine: &str, vm: Option<&str>, host: &str, port: u16) -> Result<(Arc<Conn>, Channel<Msg>)> {
+        let (m, ep) = self.machine(machine)?;
+        let Some(v) = vm else {
+            return self.pool.forward(&ep, host, port).await.with_context(|| format!("port {port} on {}", m.name));
+        };
+        let vm = m.vm(v)?.clone();
+        if !vm.guest_ssh_user.trim().is_empty() {
+            let guest = self.guest(&m, &vm, &ep).await?;
+            return self.pool.forward(&guest, host, port).await.with_context(|| format!("port {port} in {}", vm.name));
+        }
+        let addr = if host == "localhost" { self.guest_addr(&m, &vm, &ep).await? } else { host.to_string() };
+        self.pool.forward(&ep, &addr, port).await.with_context(|| format!("port {port} of {} ({addr})", vm.name))
+    }
+
+    /// Ports something listens on, on a machine or in a guest (Linux `ss`, else Windows).
+    pub async fn listening_ports(&self, machine: &str, vm: Option<&str>) -> Result<Vec<forward::ListenPort>> {
+        let ep = self.target(machine, vm).await?;
+        let (out, windows) = self.exec_either(&ep, forward::LINUX_LISTENING, forward::WINDOWS_LISTENING, Duration::from_secs(30)).await?;
+        match (out.code, windows) {
+            (Some(0), false) => Ok(forward::parse_ss(&out.stdout)),
+            (Some(0), true) => Ok(forward::parse_windows_listening(&out.stdout)),
+            _ => bail!("cannot list ports: {}", out.stderr.trim()),
+        }
+    }
+
+    /// What a running guest reports about itself (needs its guest SSH user).
+    pub async fn guest_stats(&self, machine: &str, vm: &str) -> Result<guest::GuestStats> {
+        let ep = self.target(machine, Some(vm)).await?;
+        let (out, _) = self.exec_either(&ep, &guest::linux_script(), &guest::windows_script(), Duration::from_secs(30)).await?;
+        if out.code != Some(0) {
+            bail!("guest stats: {}", out.stderr.trim());
+        }
+        Ok(guest::parse(&out.stdout))
+    }
+
+    /// Runs `linux` (a shell command) on a machine or guest, or the PowerShell script `windows`
+    /// when the system turns out to be Windows. Remembers which it was. Returns whether the
+    /// Windows script ran.
+    async fn exec_either(&self, ep: &Endpoint, linux: &str, windows: &str, timeout: Duration) -> Result<(ExecOutput, bool)> {
+        let key = ep.cache_key();
+        let known = self.windows_hosts.lock().unwrap().get(&key).copied();
+        if known != Some(true) {
+            let out = self.pool.exec(ep, linux, timeout).await?;
+            if out.code == Some(0) {
+                self.windows_hosts.lock().unwrap().insert(key, false);
+                return Ok((out, false));
+            }
+            if known == Some(false) {
+                return Ok((out, false));
+            }
+        }
+        let out = self.pool.exec(ep, &ssh::powershell(windows), timeout).await?;
+        if out.code == Some(0) {
+            self.windows_hosts.lock().unwrap().insert(key, true);
+        }
+        Ok((out, true))
     }
 
     /// The endpoint commands and files go to: the machine, or a guest when `vm` is given.
@@ -332,12 +400,12 @@ impl Core {
             return Ok(tokio::task::spawn_blocking(files::local_drives).await?);
         };
         let ep = self.target(machine, vm.as_deref()).await?;
-        let out = self.pool.exec(&ep, files::LINUX_DRIVES, Duration::from_secs(15)).await?;
-        if out.code == Some(0) {
-            return Ok(files::parse_linux_drives(&out.stdout));
-        }
-        let out = self.pool.exec(&ep, files::WINDOWS_DRIVES, Duration::from_secs(30)).await?;
-        Ok(if out.code == Some(0) { files::parse_windows_drives(&out.stdout) } else { Vec::new() })
+        let (out, windows) = self.exec_either(&ep, files::LINUX_DRIVES, files::WINDOWS_DRIVES, Duration::from_secs(30)).await?;
+        Ok(match (out.code, windows) {
+            (Some(0), false) => files::parse_linux_drives(&out.stdout),
+            (Some(0), true) => files::parse_windows_drives(&out.stdout),
+            _ => Vec::new(),
+        })
     }
 
     /// Drops a cached SFTP session after an error, so the next call opens a fresh one.

@@ -53,8 +53,8 @@ pub struct Drive {
 pub const LINUX_DRIVES: &str =
     "findmnt -Pnb -o TARGET,SIZE,AVAIL,LABEL -t ext4,ext3,ext2,xfs,btrfs,zfs,f2fs,ntfs,ntfs3,fuseblk,vfat,exfat,nfs,nfs4,cifs";
 
-/// The same for a Windows guest (OpenSSH's default shell there is cmd): local and removable drives.
-pub const WINDOWS_DRIVES: &str = r#"powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2,3 } | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.DeviceID,$_.Size,$_.FreeSpace,$_.VolumeName }""#;
+/// The same for a Windows system, as a PowerShell script: local and removable drives.
+pub const WINDOWS_DRIVES: &str = "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2,3 } | ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.DeviceID,$_.Size,$_.FreeSpace,$_.VolumeName }";
 
 /// Parses `findmnt -P` output. Boot partitions are left out: nothing to do there by hand.
 pub fn parse_linux_drives(out: &str) -> Vec<Drive> {

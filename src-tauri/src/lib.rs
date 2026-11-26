@@ -6,6 +6,8 @@ mod config;
 mod core;
 mod error;
 mod files;
+mod forward;
+mod guest;
 mod mcp;
 mod ssh;
 mod sshconf;
@@ -24,7 +26,9 @@ use crate::core::{Core, PowerAction, VmAction};
 use crate::error::CmdResult;
 
 struct AppState {
-    core: Core,
+    core: Arc<Core>,
+    /// Ports of machines and guests forwarded to this PC.
+    forwards: forward::Forwards,
     bridge: Arc<vnc::Bridge>,
     /// A config file that could not be read at start; shown in the UI instead of failing silently.
     startup_error: Option<String>,
@@ -244,6 +248,45 @@ async fn term_open(state: State<'_, AppState>, machine_id: String, vm_id: Option
     Ok(VncTarget { url, title })
 }
 
+#[tauri::command]
+fn port_forwards(state: State<'_, AppState>) -> Vec<forward::ForwardInfo> {
+    state.forwards.list()
+}
+
+/// Forwards a port of a machine (or of a guest, with `vm_id`) to 127.0.0.1 on this PC.
+#[tauri::command]
+async fn port_forward_open(
+    state: State<'_, AppState>,
+    machine_id: String,
+    vm_id: Option<String>,
+    host: Option<String>,
+    port: u16,
+    local_port: Option<u16>,
+) -> CmdResult<forward::ForwardInfo> {
+    state.core.config().machine(&machine_id)?;
+    Ok(state
+        .forwards
+        .open(state.core.clone(), &machine_id, vm_id.as_deref(), host.as_deref(), port, local_port)
+        .await?)
+}
+
+#[tauri::command]
+fn port_forward_close(state: State<'_, AppState>, id: String) {
+    state.forwards.close(&id);
+}
+
+/// What a running guest reports about itself: system, memory, disk, GPU.
+#[tauri::command]
+async fn guest_stats(state: State<'_, AppState>, machine_id: String, vm_id: String) -> CmdResult<guest::GuestStats> {
+    Ok(state.core.guest_stats(&machine_id, &vm_id).await?)
+}
+
+/// Ports something listens on, as suggestions to forward.
+#[tauri::command]
+async fn listening_ports(state: State<'_, AppState>, machine_id: String, vm_id: Option<String>) -> CmdResult<Vec<forward::ListenPort>> {
+    Ok(state.core.listening_ports(&machine_id, vm_id.as_deref()).await?)
+}
+
 /// Folders on this PC worth a shortcut in the file browser: home, desktop, downloads, documents.
 #[tauri::command]
 fn local_places() -> Vec<(String, String)> {
@@ -281,7 +324,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .manage(AppState { core, bridge: Default::default(), startup_error: load_error, previews: Default::default() })
+        .manage(AppState { core: Arc::new(core), forwards: Default::default(), bridge: Default::default(), startup_error: load_error, previews: Default::default() })
         .invoke_handler(tauri::generate_handler![
             get_config,
             startup_error,
@@ -304,6 +347,11 @@ pub fn run() {
             running_agents,
             fs_list,
             fs_drives,
+            port_forwards,
+            port_forward_open,
+            port_forward_close,
+            listening_ports,
+            guest_stats,
             fs_mkdir,
             fs_rename,
             fs_delete,
@@ -406,5 +454,53 @@ mod live_tests {
         s.read_exact(&mut hello).await.unwrap();
         println!("VNC server greeting: {:?}", String::from_utf8_lossy(&hello));
         assert!(hello.starts_with(b"RFB "));
+    }
+}
+
+/// Drives, ports, guest stats and a real port forward, against the machines in the user's own
+/// config. Run with:
+/// `DEVBENCH_TEST_MACHINE=<machine id> DEVBENCH_TEST_VM_ID=<vm id> DEVBENCH_TEST_FORWARD_PORT=<port listening on the machine> cargo test live_dev -- --ignored --nocapture`
+#[cfg(test)]
+mod live_dev_tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_dev_tools() {
+        let machine = std::env::var("DEVBENCH_TEST_MACHINE").expect("DEVBENCH_TEST_MACHINE");
+        let vm = std::env::var("DEVBENCH_TEST_VM_ID").ok();
+        let (core, err) = Core::load();
+        assert!(err.is_none(), "{err:?}");
+        let core = Arc::new(core);
+        let loc = files::Location::Remote { machine: machine.clone(), vm: None };
+        println!("machine drives: {:#?}", core.drives(&loc).await.unwrap());
+        println!("machine ports: {:#?}", core.listening_ports(&machine, None).await.unwrap());
+
+        if let Some(vm) = &vm {
+            let t = std::time::Instant::now();
+            println!("guest stats: {:#?} in {:?}", core.guest_stats(&machine, vm).await.unwrap(), t.elapsed());
+            let t = std::time::Instant::now();
+            core.guest_stats(&machine, vm).await.unwrap();
+            println!("guest stats again (OS known): {:?}", t.elapsed());
+            let gloc = files::Location::Remote { machine: machine.clone(), vm: Some(vm.clone()) };
+            println!("guest drives: {:#?}", core.drives(&gloc).await.unwrap());
+            println!("guest ports: {:#?}", core.listening_ports(&machine, Some(vm)).await.unwrap());
+        }
+
+        if let Some(port) = std::env::var("DEVBENCH_TEST_FORWARD_PORT").ok().and_then(|p| p.parse::<u16>().ok()) {
+            let fw = forward::Forwards::default();
+            let info = fw.open(core.clone(), &machine, None, None, port, None).await.unwrap();
+            println!("forward: {info:?}");
+            let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", info.local_port)).await.unwrap();
+            let mut buf = [0u8; 12];
+            tokio::time::timeout(std::time::Duration::from_secs(10), sock.read_exact(&mut buf)).await.unwrap().unwrap();
+            println!("first bytes through the forward: {:?}", String::from_utf8_lossy(&buf));
+            assert_eq!(fw.list()[0].connections, 1);
+            assert!(fw.list()[0].error.is_none());
+            drop(sock);
+            fw.close(&info.id);
+            assert!(fw.list().is_empty());
+        }
     }
 }
