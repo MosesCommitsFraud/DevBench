@@ -28,6 +28,8 @@ struct AppState {
     bridge: Arc<vnc::Bridge>,
     /// A config file that could not be read at start; shown in the UI instead of failing silently.
     startup_error: Option<String>,
+    /// Open VNC connections for the dashboard's screen previews, per "machine/vm".
+    previews: tokio::sync::Mutex<std::collections::HashMap<String, Arc<vncclient::Screen>>>,
 }
 
 #[tauri::command]
@@ -189,6 +191,45 @@ async fn vnc_open(state: State<'_, AppState>, machine_id: String, vm_id: Option<
     Ok(VncTarget { url, title })
 }
 
+/// A small picture of a VM's screen (or of the machine's desktop when `vm_id` is missing) as a
+/// PNG data URL, for the dashboard. The VNC connection stays open for the next call.
+#[tauri::command]
+async fn screen_preview(state: State<'_, AppState>, machine_id: String, vm_id: Option<String>) -> CmdResult<String> {
+    use base64::Engine;
+    let key = format!("{machine_id}/{}", vm_id.as_deref().unwrap_or(""));
+    let cached = state.previews.lock().await.get(&key).filter(|s| s.is_alive()).cloned();
+    let screen = match cached {
+        Some(s) => s,
+        None => {
+            let (conn, ch, _) = match &vm_id {
+                Some(vm) => state.core.vnc_channel(&machine_id, vm).await?,
+                None => state.core.machine_vnc_channel(&machine_id).await?,
+            };
+            let password = match &vm_id {
+                Some(vm) => state.core.config().machine(&machine_id)?.vm(vm)?.vnc_password.clone(),
+                None => String::new(),
+            };
+            let s = Arc::new(vncclient::Screen::connect(conn, ch, password).await?);
+            state.previews.lock().await.insert(key.clone(), s.clone());
+            s
+        }
+    };
+    match screen.screenshot(640).await {
+        Ok(shot) => Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(shot.png))),
+        Err(e) => {
+            state.previews.lock().await.remove(&key);
+            Err(e.into())
+        }
+    }
+}
+
+/// Closes the preview connections, e.g. when the window is hidden or a full screen view opens.
+#[tauri::command]
+async fn screen_preview_stop(state: State<'_, AppState>) -> CmdResult<()> {
+    state.previews.lock().await.clear();
+    Ok(())
+}
+
 /// Opens a shell with a terminal on the machine or in a guest. The WebSocket carries the
 /// terminal's bytes as binary messages; a text message `{"cols":80,"rows":24}` resizes it.
 #[tauri::command]
@@ -227,16 +268,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // The updater is configured only in release builds (tauri.release.conf.json); a plain
-            // `tauri build` from source has no update channel and no signing key.
+            // Updates come from the GitHub releases (latest.json, signed), see docs/releasing.md.
             #[cfg(desktop)]
-            if app.config().plugins.0.contains_key("updater") {
+            {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
             }
             Ok(())
         })
-        .manage(AppState { core, bridge: Default::default(), startup_error: load_error })
+        .manage(AppState { core, bridge: Default::default(), startup_error: load_error, previews: Default::default() })
         .invoke_handler(tauri::generate_handler![
             get_config,
             startup_error,
@@ -252,6 +292,8 @@ pub fn run() {
             trust_host_key,
             vnc_open,
             term_open,
+            screen_preview,
+            screen_preview_stop,
             local_places,
             activity,
             running_agents,

@@ -1,18 +1,92 @@
-# Builds DevBench for Windows, Linux and macOS when a version tag (v1.2.3) is
-# pushed, and attaches installers, signed updater bundles and latest.json to a
-# draft GitHub release. Publish the draft to roll the update out to installed
-# apps. See docs/releasing.md.
+# Builds DevBench for Windows, Linux and macOS and attaches the installers, the signed
+# update bundles and latest.json to a DRAFT GitHub release. Nothing is published
+# automatically: only once the draft is published by hand does
+# releases/latest/download/latest.json hand the update to installed copies.
+#
+# Start by hand under Actions → Release → "Run workflow" with a version (e.g. 0.2.0):
+# sets the version, commits it, creates the tag and builds. Pushing a tag "v*" works
+# too; then the version in the code is used.
+#
+# Secrets: TAURI_SIGNING_PRIVATE_KEY (content of ~/.tauri/devbench.key),
+# optionally TAURI_SIGNING_PRIVATE_KEY_PASSWORD. See docs/releasing.md.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version without v, e.g. 0.2.0"
+        required: true
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  # Sets the version, commits and tags it (run by hand), and collects the changes since
+  # the last release for the release text.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      notes: ${{ steps.notes.outputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set, commit and tag the version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          version="${{ inputs.version }}"
+          version="${version#v}"
+          if git rev-parse "v$version" >/dev/null 2>&1; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          node .github/scripts/set-version.mjs "$version"
+          cargo update --manifest-path src-tauri/Cargo.toml -p devbench --offline || cargo update --manifest-path src-tauri/Cargo.toml -p devbench
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "Version $version"
+          git tag "v$version"
+          git push origin HEAD "v$version"
+
+      - name: Tag to build
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ inputs.version }}"
+            echo "tag=v${v#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Changes since the last release
+        id: notes
+        run: |
+          git fetch --tags --force
+          current="${{ steps.tag.outputs.tag }}"
+          previous=$(git describe --tags --abbrev=0 "${current}^" 2>/dev/null || true)
+          range="${previous:+$previous..}$current"
+          {
+            echo "body<<NOTES"
+            echo "## Changes"
+            git log "$range" --no-merges --pretty='- %s' | grep -v '^- Version ' | head -50
+            echo
+            echo "Installed copies update themselves once this release is published."
+            echo "NOTES"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +104,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -50,20 +126,33 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      # Copying the key out of PowerShell often adds a BOM or a line break to the secret;
+      # signing then fails with "Invalid symbol 239".
+      - name: Clean up the signing key
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          key=$(printf '%s' "$RAW_KEY" | sed $'s/\xEF\xBB\xBF//g' | tr -d '\r\n\t ')
+          if [ -z "$key" ]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY is missing"
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Install frontend dependencies
         run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "DevBench ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install DevBench. Installed copies update themselves once this release is published."
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: "DevBench ${{ needs.prepare.outputs.tag }}"
+          releaseBody: ${{ needs.prepare.outputs.notes }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          # tauri.release.conf.json adds the updater (public key, endpoint) and the signed update bundles
-          args: --config src-tauri/tauri.release.conf.json ${{ matrix.args }}
+          args: ${{ matrix.args }}

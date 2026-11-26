@@ -19,7 +19,7 @@ DevBench is a cross-platform desktop app (Tauri 2, Rust + Svelte) that acts as a
 - **AI agents (MCP):** `devbench mcp` is an MCP server, so Claude and other agents can check status, wake machines, start VMs, run commands and edit files on the server or inside a guest, and take screenshots and drive mouse and keyboard in a VM. Everything is off until enabled per machine/VM; the app shows connected agents and logs every agent action. See [`docs/agents.md`](docs/agents.md).
 - **Nothing hardcoded:** all hosts live in a config file in your OS's app config folder, edited in the app's Settings screen; hosts can be imported from `~/.ssh/config`. See [`config.example.toml`](config.example.toml).
 
-**Install:** installers for Windows, macOS and Linux are attached to GitHub Releases; installed copies check for updates on start and update themselves (Linux: AppImage). Releasing is described in [`docs/releasing.md`](docs/releasing.md).
+**Install:** installers for Windows, macOS and Linux are attached to GitHub Releases; installed copies check for updates on start, show a badge and update themselves from Settings (Linux: AppImage). Releases are started from GitHub Actions with a version number, see [`docs/releasing.md`](docs/releasing.md).
 
 **Build:** install Rust (1.85+), Node.js (20+) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS, then `npm install` and `npm run tauri dev` (development) or `npm run tauri build` (installer).
 

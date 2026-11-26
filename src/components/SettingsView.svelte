@@ -6,6 +6,9 @@
   import { setConfig, store } from "../lib/store.svelte";
   import { notify, run } from "../lib/ui.svelte";
   import { setTheme, themeChoice, type ThemeChoice } from "../lib/theme.svelte";
+  import Tile from "./Tile.svelte";
+  import ColorPicker from "./ColorPicker.svelte";
+  import UpdateCard from "./UpdateCard.svelte";
 
   const themes: [ThemeChoice, string][] = [
     ["system", "theme.system"],
@@ -122,13 +125,17 @@
   {#each draft.machines as m, mi (m.id)}
     <section class="card">
       <div class="card-head">
-        <h2>{m.name || m.ssh_host || t("settings.addMachine")}</h2>
+        <div class="named">
+          <Tile name={m.name || m.ssh_host || "?"} color={m.color} size={32} />
+          <h2>{m.name || m.ssh_host || t("settings.addMachine")}</h2>
+        </div>
         <button class="btn ghost" onclick={() => draft.machines.splice(mi, 1)}><Trash2 size={16} strokeWidth={1.5} />{t("settings.removeMachine")}</button>
       </div>
 
       <h3>{t("section.connection")}</h3>
       <div class="grid">
         <label class="field"><span>{t("field.name")}</span><input bind:value={m.name} placeholder={m.ssh_host} /></label>
+        <div class="field wide"><span>{t("field.color")}</span><ColorPicker bind:value={m.color} name={m.name || m.ssh_host} /></div>
         <label class="field wide">
           <span>{t("field.sshHost")}</span><input bind:value={m.ssh_host} placeholder="server.lan" spellcheck="false" />
           <small>{t("field.sshHost.hint")}</small>
@@ -174,11 +181,15 @@
       {#each m.vms as vm, vi (vm.id)}
         <div class="vm">
           <div class="vm-head">
-            <span class="vm-title">{vm.name || vm.libvirt_name || "VM"}</span>
+            <div class="named">
+              <Tile name={vm.name || vm.libvirt_name || "VM"} color={vm.color} size={26} />
+              <span class="vm-title">{vm.name || vm.libvirt_name || "VM"}</span>
+            </div>
             <button class="btn ghost" onclick={() => m.vms.splice(vi, 1)}><Trash2 size={16} strokeWidth={1.5} />{t("settings.removeVm")}</button>
           </div>
           <div class="grid">
             <label class="field"><span>{t("field.name")}</span><input bind:value={vm.name} placeholder={vm.libvirt_name} /></label>
+            <div class="field wide"><span>{t("field.color")}</span><ColorPicker bind:value={vm.color} name={vm.name || vm.libvirt_name} /></div>
             <label class="field"><span>{t("field.libvirtName")}</span><input bind:value={vm.libvirt_name} spellcheck="false" /></label>
             <label class="field"><span>{t("field.libvirtUri")}</span><input bind:value={vm.libvirt_uri} spellcheck="false" /></label>
             <label class="field">
@@ -252,6 +263,8 @@
     </div>
   </section>
 
+  <UpdateCard />
+
   {#if dirty}
     <div class="savebar">
       <span class="secondary">{t("settings.unsaved")}</span>
@@ -277,6 +290,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+  }
+  .named {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
   }
   .head-actions {
     display: flex;

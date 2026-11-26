@@ -1,15 +1,25 @@
 <script lang="ts">
-  import { Power, RotateCcw, Zap, Monitor, Play, Square, Ellipsis, KeyRound, SquareTerminal, ArrowDown, ArrowUp } from "@lucide/svelte";
+  import { Power, RotateCcw, Zap, KeyRound, SquareTerminal, Cpu, MemoryStick, HardDrive, ArrowDownUp, ArrowDown, ArrowUp, FolderOpen } from "@lucide/svelte";
   import { api, type Machine, type Vm } from "../lib/api";
-  import { bytes, duration, gb, rate } from "../lib/format";
-  import { t, vmStateLabel } from "../lib/i18n.svelte";
+  import { bytes, duration, rate } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { boost, live, poll } from "../lib/store.svelte";
   import { askHostKey, confirm, notify, run } from "../lib/ui.svelte";
   import Menu from "./Menu.svelte";
-  import Meter from "./Meter.svelte";
-  import CpuChart from "./CpuChart.svelte";
+  import StatTile from "./StatTile.svelte";
+  import ScreenCard from "./ScreenCard.svelte";
+  import Sketch from "./Sketch.svelte";
+  import Tile from "./Tile.svelte";
 
-  let { machine, onOpen }: { machine: Machine; onOpen: (kind: "screen" | "terminal", vm: Vm | null) => void } = $props();
+  let {
+    machine,
+    onOpen,
+    onFiles,
+  }: {
+    machine: Machine;
+    onOpen: (kind: "screen" | "terminal", vm: Vm | null) => void;
+    onFiles: (vm: Vm | null) => void;
+  } = $props();
 
   const l = $derived(live(machine.id));
   const st = $derived(l.status);
@@ -48,6 +58,14 @@
     if (ok) await act(action, () => api.power(machine.id, action));
   }
 
+  interface Pending {
+    label: string;
+    wasRunning: boolean;
+    action: string;
+    since: number;
+  }
+  let vmPending = $state<Record<string, Pending>>({});
+
   async function vmAction(vm: Vm, action: "start" | "shutdown" | "reboot" | "destroy") {
     if (action === "destroy" || action === "shutdown") {
       const ok = await confirm(
@@ -64,14 +82,6 @@
     vmPending[vm.id] = { label: t(label[action]), wasRunning, action, since: Date.now() };
     if (!(await act(`${vm.id}:${action}`, () => api.vmAction(machine.id, vm.id, action)))) delete vmPending[vm.id];
   }
-
-  interface Pending {
-    label: string;
-    wasRunning: boolean;
-    action: string;
-    since: number;
-  }
-  let vmPending = $state<Record<string, Pending>>({});
 
   // A pending transition ends when the VM reached the other state (or after two minutes).
   $effect(() => {
@@ -91,28 +101,33 @@
     return st?.vms.find((v) => v.id === vm.id) ?? null;
   }
 
+  function vmBusy(vm: Vm) {
+    return { start: !!busy[`${vm.id}:start`], shutdown: !!busy[`${vm.id}:shutdown`] };
+  }
+
   const memUsed = $derived(st ? st.mem_total - st.mem_available : 0);
   const ratio = (used: number, total: number) => (total > 0 ? Math.min(1, used / total) : 0);
-
-  const facts = $derived(
-    st ? [st.os, st.cpu_model, st.ip || st.hostname].filter(Boolean) : [],
-  );
+  const facts = $derived(st ? [st.os, st.ip || st.hostname].filter(Boolean) : []);
   const target = $derived(machine.ssh_user ? `${machine.ssh_user}@${machine.ssh_host}` : machine.ssh_host);
   const runningVms = $derived(st?.vms.filter((v) => v.running).length ?? 0);
+  const ledState = $derived<"on" | "off" | "busy">(online ? "on" : l.checking || l.pending ? "busy" : "off");
+  const screens = $derived(machine.vms.length + (machine.desktop_vnc_port ? 1 : 0));
 </script>
 
-<section class="panel card" class:offline={!online && !l.checking}>
+<section class="panel" class:offline={!online && !l.checking}>
   <header>
+    <Tile name={machine.name} color={machine.color} size={44} status={ledState} />
     <div class="ident">
       <div class="title">
-        <span class="led" class:on={online} class:busy={!online && (l.checking || !!l.pending)}></span>
         <h2>{machine.name}</h2>
         {#if online}
-          <span class="state on">{t("machine.up", duration(st!.uptime_secs))}</span>
+          <span class="pill on"><i></i>{t("machine.up", duration(st!.uptime_secs))}</span>
         {:else if l.pending}
-          <span class="state busy">{l.pending} …</span>
-        {:else if !l.checking}
-          <span class="state">{t("machine.offline")}</span>
+          <span class="pill busy"><i></i>{l.pending} …</span>
+        {:else if l.checking}
+          <span class="pill"><i></i>{t("machine.checking")} …</span>
+        {:else}
+          <span class="pill"><i></i>{t("machine.offline")}</span>
         {/if}
       </div>
       <p class="facts mono">
@@ -125,132 +140,109 @@
         <button class="btn" onclick={() => onOpen("terminal", null)}>
           <SquareTerminal size={16} strokeWidth={1.5} />{t("machine.terminal")}
         </button>
-        {#if machine.desktop_vnc_port}
-          <button class="btn" onclick={() => onOpen("screen", null)}>
-            <Monitor size={16} strokeWidth={1.5} />{t("machine.desktop")}
-          </button>
-        {/if}
+        <button class="btn" onclick={() => onFiles(null)}>
+          <FolderOpen size={16} strokeWidth={1.5} />{t("nav.files")}
+        </button>
         <Menu label={t("machine.power")}>
           {#snippet trigger()}<Power size={16} strokeWidth={1.5} />{/snippet}
           <button disabled={busy.reboot} onclick={() => power("reboot")}><RotateCcw size={16} strokeWidth={1.5} />{t("machine.reboot")}</button>
           <button class="danger" disabled={busy.poweroff} onclick={() => power("poweroff")}><Power size={16} strokeWidth={1.5} />{t("machine.poweroff")}</button>
         </Menu>
-      {:else if !l.checking}
-        {#if hostKeyError}
-          <button class="btn" onclick={checkHostKey}><KeyRound size={16} strokeWidth={1.5} />{t("machine.trust")}</button>
-        {/if}
-        {#if machine.mac}
-          <button class="btn primary" disabled={busy.wake || !!l.pending} onclick={wake}>
-            <Zap size={16} strokeWidth={1.5} />{t("machine.wake")}
-          </button>
-        {/if}
+      {:else if !l.checking && hostKeyError}
+        <button class="btn" onclick={checkHostKey}><KeyRound size={16} strokeWidth={1.5} />{t("machine.trust")}</button>
       {/if}
     </div>
   </header>
 
   {#if online && st}
-    <div class="body">
-      <div class="cpu">
-        <div class="cpu-head">
-          <span class="secondary">{t("machine.cpu")}</span>
-          <span class="figure mono">{Math.round(st.cpu_percent)}<small>%</small></span>
+    <div class="stats">
+      <StatTile icon={Cpu} tone="blue" label={t("machine.cpu")} value={String(Math.round(st.cpu_percent))} unit="%" ratio={st.cpu_percent / 100} detail={st.cpu_model} />
+      <StatTile
+        icon={MemoryStick}
+        tone="violet"
+        label={t("machine.memory")}
+        value={String(Math.round(ratio(memUsed, st.mem_total) * 100))}
+        unit="%"
+        ratio={ratio(memUsed, st.mem_total)}
+        detail={`${bytes(memUsed)} / ${bytes(st.mem_total)}`}
+      />
+      <StatTile
+        icon={HardDrive}
+        tone="amber"
+        label={t("machine.disk")}
+        value={String(Math.round(ratio(st.disk_used, st.disk_total) * 100))}
+        unit="%"
+        ratio={ratio(st.disk_used, st.disk_total)}
+        detail={t("machine.freeOf", bytes(Math.max(0, st.disk_total - st.disk_used)), bytes(st.disk_total))}
+      />
+      <StatTile icon={ArrowDownUp} tone="teal" label={t("machine.network")} value="" detail={st.iface}>
+        <div class="rates">
+          <span title={t("machine.download")}><ArrowDown size={15} strokeWidth={2} />{rate(st.net_rx_rate)}</span>
+          <span title={t("machine.upload")}><ArrowUp size={15} strokeWidth={2} />{rate(st.net_tx_rate)}</span>
         </div>
-        <div class="chart"><CpuChart values={l.cpu} /></div>
-        <span class="mono muted caption">{t("machine.cpuWindow")}</span>
-      </div>
-      <div class="side">
-        <Meter label={t("machine.memory")} value={ratio(memUsed, st.mem_total)} detail={`${bytes(memUsed)} / ${bytes(st.mem_total)}`} />
-        <Meter label={t("machine.disk")} value={ratio(st.disk_used, st.disk_total)} detail={`${bytes(st.disk_used)} / ${bytes(st.disk_total)}`} />
-        <div class="net">
-          <span class="secondary">{t("machine.network")}</span>
-          <span class="rates mono">
-            <span title={t("machine.download")}><ArrowDown size={14} strokeWidth={1.5} />{rate(st.net_rx_rate)}</span>
-            <span title={t("machine.upload")}><ArrowUp size={14} strokeWidth={1.5} />{rate(st.net_tx_rate)}</span>
-          </span>
-        </div>
+      </StatTile>
+    </div>
+  {:else if !l.checking}
+    <div class="asleep">
+      <Sketch kind="sleeping" label={l.pending ? t("machine.wakingUp") : t("machine.sleeping")} size={84} />
+      <div class="asleep-side">
+        {#if machine.mac}
+          <button class="btn primary big" disabled={busy.wake || !!l.pending} onclick={wake}>
+            <Zap size={16} strokeWidth={1.75} />{t("machine.wake")}
+          </button>
+        {:else}
+          <p class="secondary">{t("machine.noWake")}</p>
+        {/if}
+        {#if l.error && !l.pending}<p class="problem mono">{l.error.message}</p>{/if}
       </div>
     </div>
-  {:else if !l.checking && l.error && !l.pending}
-    <p class="problem mono muted">{l.error.message}</p>
   {/if}
 
-  {#if machine.vms.length}
-    <div class="vms">
-      <div class="vms-head">
-        <span class="secondary">{t("section.vms")}</span>
-        {#if online}<span class="mono muted">{t("machine.vmsOf", runningVms, machine.vms.length)}</span>{/if}
-      </div>
-      <ul>
-        {#each machine.vms as vm (vm.id)}
-          {@const vs = vmStatus(vm)}
-          {@const running = !!vs?.running}
-          {@const pending = vmPending[vm.id]}
-          <li class:running>
-            <span class="led" class:on={running && !pending} class:busy={!!pending || vs?.state === "in shutdown" || vs?.state === "paused"} class:error={vs?.state === "crashed"}></span>
-            <div class="vm-id">
-              <span class="vm-name">{vm.name}</span>
-              <span class="vm-specs mono muted">
-                {#if vs?.vcpus}{t("vm.vcpus", vs.vcpus)} · {gb(vs.memory)}{:else}{vm.libvirt_name}{/if}{#if vs?.ip} · {vs.ip}{/if}
-              </span>
-            </div>
-            <div class="vm-load">
-              {#if running && vs?.cpu_percent != null && !pending}
-                <div class="mini"><i style:transform="scaleX({vs.cpu_percent / 100})"></i></div>
-                <span class="mono">{Math.round(vs.cpu_percent)}<small>%</small></span>
-              {/if}
-            </div>
-            <span class="vm-state" class:on={running && !pending} title={vs?.error ?? ""}>
-              {pending ? `${pending.label} …` : online && vs ? vmStateLabel(vs.state) : "–"}
-            </span>
-            <div class="vm-actions">
-              {#if online && vs}
-                {#if running}
-                  {#if vm.vnc_mode !== "none"}
-                    <button class="btn" onclick={() => onOpen("screen", vm)}><Monitor size={16} strokeWidth={1.5} />{t("vm.screen")}</button>
-                  {/if}
-                  {#if vm.guest_ssh_user}
-                    <button class="btn icon" title={t("machine.terminal")} aria-label={t("machine.terminal")} onclick={() => onOpen("terminal", vm)}>
-                      <SquareTerminal size={16} strokeWidth={1.5} />
-                    </button>
-                  {/if}
-                  <Menu label={t("vm.more")}>
-                    {#snippet trigger()}<Ellipsis size={16} strokeWidth={1.5} />{/snippet}
-                    <button disabled={busy[`${vm.id}:shutdown`]} onclick={() => vmAction(vm, "shutdown")}><Square size={16} strokeWidth={1.5} />{t("vm.shutdown")}</button>
-                    <button onclick={() => vmAction(vm, "reboot")}><RotateCcw size={16} strokeWidth={1.5} />{t("vm.reboot")}</button>
-                    <button class="danger" onclick={() => vmAction(vm, "destroy")}><Power size={16} strokeWidth={1.5} />{t("vm.destroy")}</button>
-                  </Menu>
-                {:else}
-                  <button class="btn" disabled={busy[`${vm.id}:start`] || !!pending} onclick={() => vmAction(vm, "start")}>
-                    <Play size={16} strokeWidth={1.5} />{t("vm.start")}
-                  </button>
-                {/if}
-              {/if}
-            </div>
-          </li>
-        {/each}
-      </ul>
+  {#if online && screens}
+    <div class="screens-head">
+      <h3>{t("machine.screens")}</h3>
+      {#if machine.vms.length}<span class="mono muted">{t("machine.vmsOf", runningVms, machine.vms.length)}</span>{/if}
+    </div>
+    <div class="screens">
+      {#if machine.desktop_vnc_port}
+        <ScreenCard {machine} vm={null} online onOpen={(kind) => onOpen(kind, null)} />
+      {/if}
+      {#each machine.vms as vm (vm.id)}
+        <ScreenCard
+          {machine}
+          {vm}
+          vs={vmStatus(vm)}
+          {online}
+          pending={vmPending[vm.id]?.label ?? null}
+          busy={vmBusy(vm)}
+          onOpen={(kind) => onOpen(kind, vm)}
+          onAction={(a) => vmAction(vm, a)}
+        />
+      {/each}
     </div>
   {/if}
 </section>
 
 <style>
   .panel {
-    padding: 20px 24px 8px;
     display: grid;
     gap: 20px;
-  }
-  .panel.offline {
-    padding-bottom: 8px;
+    padding: 22px 24px 24px;
+    border-radius: 24px;
+    background: var(--card);
+    box-shadow:
+      0 0 0 1px var(--line),
+      var(--shadow-card);
   }
   header {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
+    align-items: center;
+    gap: 14px;
   }
   .ident {
     display: grid;
-    gap: 4px;
+    gap: 2px;
+    flex: 1;
     min-width: 0;
   }
   .title {
@@ -261,32 +253,47 @@
   }
   h2 {
     margin: 0;
-    font-size: 18px;
+    font-family: var(--display);
+    font-size: 22px;
     line-height: 28px;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     white-space: nowrap;
   }
-  .state {
-    margin-left: 4px;
+  .pill {
     height: 22px;
-    padding: 0 8px;
+    padding: 0 9px 0 8px;
     border-radius: 11px;
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     font-size: 12px;
     color: var(--text-2);
     background: var(--raised);
     white-space: nowrap;
   }
-  .state.on {
+  .pill i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+  .pill.on {
     color: var(--on);
     background: var(--on-soft);
   }
-  .state.busy {
+  .pill.on i {
+    background: var(--on);
+    animation: beat 2.4s var(--ease) infinite;
+  }
+  .pill.busy {
     color: var(--busy);
   }
+  .pill.busy i {
+    background: var(--busy);
+  }
   .facts {
-    margin: 0 0 0 18px;
+    margin: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 0 8px;
@@ -297,7 +304,6 @@
   .facts span + span::before {
     content: "·";
     margin-right: 8px;
-    color: var(--text-3);
   }
   .actions {
     display: flex;
@@ -305,59 +311,16 @@
     gap: 8px;
     flex: none;
   }
-  .body {
+  .stats {
     display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
-    gap: 32px;
-    padding: 4px 0;
-  }
-  .cpu {
-    display: grid;
-    grid-template-rows: auto 120px auto;
-    gap: 8px;
-    min-width: 0;
-  }
-  .cpu-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-  .figure {
-    font-size: 28px;
-    line-height: 32px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-  }
-  .figure small {
-    margin-left: 2px;
-    font-size: 14px;
-    color: var(--text-3);
-    font-weight: 400;
-  }
-  .chart {
-    position: relative;
-    margin-right: 4px;
-  }
-  .caption {
-    font-size: 11px;
-  }
-  .side {
-    display: grid;
-    align-content: center;
-    gap: 16px;
-    padding-left: 32px;
-    border-left: 1px solid var(--line);
-  }
-  .net {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
   .rates {
-    display: flex;
-    gap: 16px;
-    font-size: 13px;
+    display: grid;
+    font-size: 17px;
+    line-height: 22px;
+    font-weight: 600;
   }
   .rates span {
     display: inline-flex;
@@ -368,104 +331,59 @@
   .rates :global(svg) {
     color: var(--text-3);
   }
-  .problem {
-    margin: -8px 0 12px 18px;
-    overflow-wrap: anywhere;
-  }
-  .vms {
-    margin: 0 -24px;
-    border-top: 1px solid var(--line);
-  }
-  .vms-head {
+  .asleep {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    height: 40px;
-    padding: 0 24px;
-    font-size: 13px;
+    gap: 32px;
+    padding: 12px 8px 4px;
   }
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0 12px 4px;
+  .asleep-side {
     display: grid;
-  }
-  li {
-    display: grid;
-    grid-template-columns: 8px minmax(0, 1fr) 96px 120px auto;
-    align-items: center;
-    gap: 16px;
-    min-height: 56px;
-    padding: 0 12px;
-    border-radius: var(--r-card);
-    transition: background-color var(--fast) var(--ease);
-  }
-  li:hover {
-    background: var(--sunken);
-  }
-  .vm-id {
-    display: grid;
+    gap: 8px;
+    justify-items: start;
     min-width: 0;
   }
-  .vm-name {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .asleep p {
+    margin: 0;
   }
-  .vm-specs {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .btn.big {
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 12px;
   }
-  .vm-load {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-  }
-  .vm-load small {
+  .problem {
     color: var(--text-3);
+    overflow-wrap: anywhere;
   }
-  .mini {
-    flex: 1;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--raised);
-    overflow: hidden;
-  }
-  .mini i {
-    display: block;
-    height: 100%;
-    background: var(--text-3);
-    transform-origin: left;
-    transition: transform 600ms var(--ease);
-  }
-  .vm-state {
-    color: var(--text-2);
-    text-align: right;
-    white-space: nowrap;
-  }
-  .vm-actions {
+  .screens-head {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    min-width: 180px;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: -8px;
   }
-  @media (max-width: 900px) {
-    .body {
-      grid-template-columns: 1fr;
-      gap: 20px;
+  h3 {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .screens {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  @keyframes beat {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--on) 60%, transparent);
     }
-    .side {
-      padding-left: 0;
-      border-left: none;
+    50% {
+      box-shadow: 0 0 0 4px transparent;
     }
-    li {
-      grid-template-columns: 8px minmax(0, 1fr) auto auto;
-    }
-    .vm-load {
-      display: none;
+  }
+  @media (max-width: 980px) {
+    .stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>

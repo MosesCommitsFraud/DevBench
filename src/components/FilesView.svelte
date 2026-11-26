@@ -13,8 +13,6 @@
     Folder,
     File as FileIcon,
     Laptop,
-    Server,
-    AppWindow,
     Upload,
     Download,
     Copy,
@@ -34,12 +32,15 @@
   import { live, store } from "../lib/store.svelte";
   import { confirm, notify, prompt, run } from "../lib/ui.svelte";
   import { beginDrag, drag, dropTargetAt } from "../lib/drag.svelte";
+  import Tile from "./Tile.svelte";
+  import Sketch from "./Sketch.svelte";
 
   // ---- Systems: this PC, every machine, every VM ------------------------------------------
 
   interface System {
     key: string;
     label: string;
+    color: string;
     kind: "pc" | "server" | "vm";
     /** Why it cannot be browsed right now, or "" if it can. */
     unavailable: string;
@@ -47,13 +48,14 @@
   }
 
   const systems = $derived.by<System[]>(() => {
-    const list: System[] = [{ key: "local", label: t("files.thisPc"), kind: "pc", unavailable: "", led: "on" }];
+    const list: System[] = [{ key: "local", label: t("files.thisPc"), color: "", kind: "pc", unavailable: "", led: "on" }];
     for (const m of store.config.machines) {
       const l = live(m.id);
       const online = !!l.status?.online;
       list.push({
         key: `m:${m.id}`,
         label: m.name,
+        color: m.color,
         kind: "server",
         unavailable: online || l.checking ? "" : t("files.machineOff", m.name),
         led: online ? "on" : l.checking ? "busy" : "off",
@@ -64,6 +66,7 @@
         list.push({
           key: `v:${m.id}:${v.id}`,
           label: v.name,
+          color: v.color,
           kind: "vm",
           unavailable: !v.guest_ssh_user ? t("files.noGuestUser") : !running && !l.checking ? t("files.vmOff", v.name) : "",
           led: running ? "on" : l.checking ? "busy" : "off",
@@ -83,7 +86,11 @@
   // ---- Where we are -----------------------------------------------------------------------
 
   const saved = JSON.parse(localStorage.getItem("devbench.files") ?? "{}") as { sys?: string; paths?: Record<string, string> };
-  let current = $state(saved.sys && (saved.sys === "local" || store.config.machines.some((m) => saved.sys!.includes(m.id))) ? saved.sys : "local");
+  const requested = store.filesSystem;
+  store.filesSystem = null;
+  let current = $state(
+    requested ?? (saved.sys && (saved.sys === "local" || store.config.machines.some((m) => saved.sys!.includes(m.id))) ? saved.sys : "local"),
+  );
   /** The last folder per system, so switching back lands where you were. */
   let paths = $state<Record<string, string>>(saved.paths ?? {});
   /** Listings per system, shown at once while the fresh one loads. */
@@ -523,9 +530,12 @@
           title={s.unavailable}
           onclick={() => choose(s.key)}
         >
-          {#if s.kind === "pc"}<Laptop size={16} strokeWidth={1.5} />{:else if s.kind === "server"}<Server size={16} strokeWidth={1.5} />{:else}<AppWindow size={16} strokeWidth={1.5} />{/if}
+          {#if s.kind === "pc"}
+            <span class="pc"><Laptop size={14} strokeWidth={1.75} /></span>
+          {:else}
+            <Tile name={s.label} color={s.color} size={s.kind === "vm" ? 18 : 22} status={s.led === "on" ? "on" : s.led === "busy" ? "busy" : "off"} />
+          {/if}
           <span class="label">{s.label}</span>
-          {#if s.kind !== "pc"}<span class="led" class:on={s.led === "on"} class:busy={s.led === "busy"}></span>{/if}
         </button>
       {/each}
     </div>
@@ -610,12 +620,16 @@
       <div class="list" class:loading class:drop={osDrop === "here"} bind:this={listEl} tabindex="0" role="listbox" aria-multiselectable="true" data-drop="here">
         {#if sys?.unavailable}
           <div class="note">
+            <Sketch kind={sys.kind === "vm" ? "off" : "sleeping"} size={64} />
             <p>{sys.unavailable}</p>
           </div>
         {:else if problem}
           <div class="note"><p class="mono muted">{problem}</p></div>
         {:else if listing && entries.length === 0}
-          <div class="note"><p class="muted">{filter ? t("files.noMatch", filter) : t("files.empty")}</p></div>
+          <div class="note">
+            <Sketch kind="empty" size={56} label={filter ? "" : t("files.emptyHand")} />
+            {#if filter}<p class="muted">{t("files.noMatch", filter)}</p>{/if}
+          </div>
         {:else if listing}
           {#each entries as e, i (e.path)}
             <div
@@ -750,8 +764,24 @@
       color var(--fast) var(--ease),
       box-shadow var(--fast) var(--ease);
   }
+  .sys {
+    --dot-ring: var(--bg);
+  }
+  .sys:hover,
+  .sys.active {
+    --dot-ring: var(--card);
+  }
   .sys.vm {
-    margin-left: 16px;
+    margin-left: 14px;
+    height: 30px;
+  }
+  .pc {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    background: var(--raised);
   }
   .sys :global(svg) {
     flex: none;
@@ -1020,7 +1050,9 @@
   }
   .note {
     display: grid;
-    place-items: center;
+    place-content: center;
+    justify-items: center;
+    gap: 12px;
     min-height: 200px;
     padding: 24px;
     text-align: center;

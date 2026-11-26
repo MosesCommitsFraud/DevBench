@@ -8,6 +8,8 @@
 @import "@fontsource/ibm-plex-sans/600.css";
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource-variable/outfit/wght.css";
+@import "@fontsource/caveat/500.css";
 
 /* Dark: navy ink, the logo's overlap colour stepped up into surfaces */
 :root,
@@ -36,6 +38,7 @@
   --danger-soft: rgb(239 90 95 / 0.14);
   --chart: #3a6cf0;
   --chart-fill: rgb(58 108 240 / 0.22);
+  --sketch: rgb(236 238 244 / 0.42);
 
   --highlight: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-card: none;
@@ -70,6 +73,7 @@
   --danger-soft: rgb(211 58 63 / 0.1);
   --chart: #2457e6;
   --chart-fill: rgb(36 87 230 / 0.14);
+  --sketch: rgb(15 27 61 / 0.4);
 
   --highlight: none;
   --shadow-card: 0 1px 2px rgb(15 27 61 / 0.04);
@@ -81,10 +85,13 @@
 :root {
   --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* Headings and big figures: round and friendly; notes in empty states: by hand */
+  --display: "Outfit Variable", "IBM Plex Sans", system-ui, sans-serif;
+  --hand: "Caveat", "Segoe Print", cursive;
 
   --r-control: 8px;
-  --r-card: 12px;
-  --r-panel: 16px;
+  --r-card: 14px;
+  --r-panel: 20px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --fast: 140ms;
   --menu: 180ms;
@@ -367,9 +374,11 @@ select {
 }
 .page-head h1 {
   margin: 0;
-  font-size: 22px;
-  line-height: 28px;
-  font-weight: 500;
+  font-family: var(--display);
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .page-head p {
   margin: 4px 0 0;

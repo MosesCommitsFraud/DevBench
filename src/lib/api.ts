@@ -6,6 +6,8 @@ export type VncMode = "guest" | "host" | "none";
 export interface Vm {
   id: string;
   name: string;
+  /** Tile colour, e.g. "teal"; empty = from the name. */
+  color: string;
   libvirt_name: string;
   libvirt_uri: string;
   guest_address: string;
@@ -23,6 +25,7 @@ export interface Vm {
 export interface Machine {
   id: string;
   name: string;
+  color: string;
   ssh_host: string;
   ssh_port: number;
   ssh_user: string;
@@ -132,6 +135,9 @@ export const api = {
   termOpen: (machineId: string, vmId: string | null, cols: number, rows: number) =>
     invoke<{ url: string; title: string }>("term_open", { machineId, vmId, cols, rows }),
   localPlaces: () => invoke<[string, string][]>("local_places"),
+  /** PNG data URL of a VM's screen, or of the machine's desktop when vmId is null. */
+  screenPreview: (machineId: string, vmId: string | null) => invoke<string>("screen_preview", { machineId, vmId }),
+  screenPreviewStop: () => invoke<void>("screen_preview_stop"),
   activity: (limit: number) => invoke<ActivityEntry[]>("activity", { limit }),
   runningAgents: () => invoke<RunningAgent[]>("running_agents"),
 };
@@ -146,6 +152,7 @@ export function emptyMachine(): Machine {
   return {
     id: newId(),
     name: "",
+    color: "",
     ssh_host: "",
     ssh_port: 0,
     ssh_user: "",
@@ -167,6 +174,7 @@ export function emptyVm(libvirtName = ""): Vm {
   return {
     id: newId(),
     name: libvirtName,
+    color: "",
     libvirt_name: libvirtName,
     libvirt_uri: "qemu:///system",
     guest_address: "",

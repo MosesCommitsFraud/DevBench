@@ -16,6 +16,8 @@ pub struct Config {
 pub struct Machine {
     pub id: String,
     pub name: String,
+    /// Colour of the machine's tile in the app, e.g. "teal"; empty picks one from the name.
+    pub color: String,
     /// Hostname, IP address or a `Host` alias from `~/.ssh/config`.
     pub ssh_host: String,
     /// 0 = from `~/.ssh/config`, otherwise 22.
@@ -49,6 +51,7 @@ impl Default for Machine {
         Self {
             id: String::new(),
             name: String::new(),
+            color: String::new(),
             ssh_host: String::new(),
             ssh_port: 0,
             ssh_user: String::new(),
@@ -84,6 +87,8 @@ pub enum VncMode {
 pub struct Vm {
     pub id: String,
     pub name: String,
+    /// Colour of the VM's tile in the app; empty picks one from the name.
+    pub color: String,
     pub libvirt_name: String,
     pub libvirt_uri: String,
     /// Empty = ask libvirt (`virsh domifaddr`).
@@ -108,6 +113,7 @@ impl Default for Vm {
         Self {
             id: String::new(),
             name: String::new(),
+            color: String::new(),
             libvirt_name: String::new(),
             libvirt_uri: "qemu:///system".into(),
             guest_address: String::new(),

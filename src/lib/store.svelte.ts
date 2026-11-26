@@ -7,18 +7,15 @@ export interface Live {
   checking: boolean;
   /** Pending action label shown on the machine, e.g. while waking up. */
   pending: string | null;
-  /** CPU use of the last polls, oldest first, 0..100. */
-  cpu: number[];
 }
-
-/** How many CPU samples the history keeps (about three minutes at the normal rate). */
-export const HISTORY = 90;
 
 export const store = $state({
   config: { machines: [] } as Config,
   live: {} as Record<string, Live>,
   /** True while a VNC view covers the dashboard: poll less often. */
   vncOpen: false,
+  /** The system the file browser should open on next (e.g. "m:<id>"), set by "Files" buttons. */
+  filesSystem: null as string | null,
   /** `devbench mcp` processes connected right now. */
   agents: [] as RunningAgent[],
 });
@@ -37,13 +34,13 @@ export async function loadConfig() {
 /** Replaces the config and makes sure every machine has a live entry. */
 export function setConfig(config: Config) {
   for (const m of config.machines) {
-    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null, cpu: [] };
+    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null };
   }
   store.config = config;
   if (started) startPolling();
 }
 
-const placeholder: Live = { status: null, error: null, checking: true, pending: null, cpu: [] };
+const placeholder: Live = { status: null, error: null, checking: true, pending: null };
 
 export function live(id: string): Live {
   return store.live[id] ?? placeholder;
@@ -63,10 +60,8 @@ export async function poll(id: string) {
     const st = await api.machineStatus(id);
     l.status = st;
     l.error = null;
-    l.cpu = [...l.cpu, st.cpu_percent].slice(-HISTORY);
   } catch (e) {
     l.status = null;
-    l.cpu = [];
     l.error = asAppError(e);
   } finally {
     l.checking = false;

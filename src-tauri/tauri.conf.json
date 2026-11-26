@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Control center for home servers and their virtual machines",
     "icon": [
@@ -39,5 +40,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVDRjA0MzNBQUIxNTQzQjQKUldTMFF4V3JPa1B3N0ZKM21lTnVaTURaUWRIMEpCT3JPa0c2WEY1SDNDWUhGbGhmdGxzS1I5Nk0K",
+      "endpoints": ["https://github.com/MosesCommitsFraud/DevBench/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }
