@@ -65,4 +65,5 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: ${{ matrix.args }}
+          # tauri.release.conf.json adds the updater (public key, endpoint) and the signed update bundles
+          args: --config src-tauri/tauri.release.conf.json ${{ matrix.args }}

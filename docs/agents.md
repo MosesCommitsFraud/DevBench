@@ -22,7 +22,7 @@ Der MCP-Server ist dasselbe Programm wie die App, mit dem Argument `mcp`. Er lä
 claude mcp add devbench -- "<Installationsordner>\devbench.exe" mcp
 ```
 
-`<Installationsordner>` ist der Ordner der installierten App. Der Windows-Installer legt sie standardmäßig für den aktuellen Benutzer unter `%LOCALAPPDATA%` ab; im Zweifel im Startmenü per Rechtsklick → *Dateispeicherort öffnen* nachsehen. Linux (AppImage): `claude mcp add devbench -- /pfad/zu/DevBench.AppImage mcp`. macOS: `claude mcp add devbench -- /Applications/DevBench.app/Contents/MacOS/devbench mcp`.
+`<Installationsordner>` ist der Ordner der installierten App. Der Windows-Installer legt sie standardmäßig unter `%LOCALAPPDATA%\DevBench` ab, also `claude mcp add devbench -- "%LOCALAPPDATA%\DevBench\devbench.exe" mcp`. Linux (AppImage): `claude mcp add devbench -- /pfad/zu/DevBench.AppImage mcp`. macOS: `claude mcp add devbench -- /Applications/DevBench.app/Contents/MacOS/devbench mcp`.
 
 ### Claude Desktop, Cursor und andere
 

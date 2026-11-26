@@ -25,24 +25,26 @@ Das fragt nach einem Passwort und legt zwei Dateien an:
 
 ### 2. Öffentlichen Schlüssel und Adresse in die App eintragen
 
-In `src-tauri/tauri.conf.json` unter `plugins.updater`:
+Die Update-Einstellungen stehen in einer eigenen Datei, [`src-tauri/tauri.release.conf.json`](../src-tauri/tauri.release.conf.json). Nur der Release-Workflow nutzt sie (`--config src-tauri/tauri.release.conf.json`). Wer DevBench selbst aus dem Quellcode baut, braucht keinen Schlüssel und bekommt eine App ohne Update-Funktion.
+
+Dort zwei Platzhalter ersetzen:
 
 ```json
 "plugins": {
   "updater": {
     "pubkey": "<Inhalt von devbench.key.pub, die ganze Zeile>",
     "endpoints": [
-      "https://github.com/<owner>/<repo>/releases/latest/download/latest.json"
+      "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
     ]
   }
 }
 ```
 
-- `pubkey` ist der **Inhalt** der `.pub`-Datei, kein Dateipfad.
-- `<owner>/<repo>` durch das eigene GitHub-Repository ersetzen, z. B. `maxmuster/DevBench`.
-- `bundle.createUpdaterArtifacts` muss `true` sein (ist im Repo schon gesetzt).
+- `REPLACE_WITH_THE_CONTENT_OF_devbench.key.pub` durch den **Inhalt** der `.pub`-Datei ersetzen, keinen Dateipfad.
+- `OWNER/REPO` durch das eigene GitHub-Repository ersetzen, z. B. `maxmuster/DevBench`.
+- `bundle.createUpdaterArtifacts: true` steht schon in der Datei.
 
-Ein leerer `pubkey` oder der Platzhalter `<owner>/<repo>` bedeutet: Die Update-Suche ist aus bzw. schlägt fehl. Das ist für lokale Builds in Ordnung.
+Der öffentliche Schlüssel darf ins Repository, er ist nicht geheim.
 
 ### 3. Secrets im GitHub-Repository anlegen
 
@@ -97,7 +99,7 @@ Installed copies update themselves from GitHub Releases via the Tauri updater pl
 
 **One-time setup:**
 1. `npm run tauri signer generate -- -w ~/.tauri/devbench.key` (outside the repo). Keep the private key safe: losing it means installed copies can no longer update.
-2. In `src-tauri/tauri.conf.json` → `plugins.updater`: set `pubkey` to the *contents* of `devbench.key.pub` and replace `<owner>/<repo>` in the endpoint `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`.
+2. In `src-tauri/tauri.release.conf.json` (used only by the release workflow via `--config`): set `pubkey` to the *contents* of `devbench.key.pub` and replace `OWNER/REPO` in the endpoint. Builds from source without that file have no updater and need no key.
 3. Add repository secrets `TAURI_SIGNING_PRIVATE_KEY` (key file contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
 **Each release:** bump `version` in `tauri.conf.json` and `package.json` (and `Cargo.toml`), commit, push a tag `vX.Y.Z`. The workflow builds Windows, Linux and macOS and creates a draft release with `latest.json`. Publish the draft; only then do installed apps see the update. Linux auto-update works for the AppImage only. Without OS code signing, Windows SmartScreen and macOS Gatekeeper warn on first install.
