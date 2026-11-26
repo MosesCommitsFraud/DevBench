@@ -101,13 +101,18 @@ impl Screen {
         let frame = Arc::new(Mutex::new(Frame { width: 0, height: 0, pixels: Vec::new(), last_update: Instant::now(), updates: 0 }));
         let pump = tokio::spawn(pump(client.clone(), frame.clone()));
         let screen = Self { client, frame, pointer: Mutex::new((0, 0, 0)), pump, _conn: conn };
-        // Wait for the first full picture.
+        // Wait for the first full picture: until updates pause, or at most 3 s after the first
+        // one (some servers, e.g. TigerVNC, keep sending small updates without a pause).
         let started = Instant::now();
+        let mut first: Option<Instant> = None;
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let f = screen.frame.lock().await;
-            if f.updates > 0 && f.last_update.elapsed() > Duration::from_millis(400) {
-                break;
+            if f.updates > 0 {
+                let since = *first.get_or_insert_with(Instant::now);
+                if f.last_update.elapsed() > Duration::from_millis(400) || since.elapsed() > Duration::from_secs(3) {
+                    break;
+                }
             }
             if started.elapsed() > Duration::from_secs(20) {
                 bail!("the VNC server sent no picture within 20 s");

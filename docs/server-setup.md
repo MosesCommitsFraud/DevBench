@@ -83,15 +83,55 @@ Den Port zeigt `virsh vncdisplay <vm>` an (`:0` = 5900, `:1` = 5901 …). Bei `a
 
 **Desktop:** Hat der Server eine grafische Oberfläche, zeigt DevBench sie über VNC an, genau wie bei VMs durch SSH weitergeleitet. Der VNC-Server soll nur auf `127.0.0.1` lauschen. In den Einstellungen unter *Desktop* den Port eintragen (`desktop_vnc_port`, 0 = kein Desktop-Knopf).
 
-Für einen Server ohne Monitor ist ein eigener virtueller Desktop am einfachsten, z. B. Xfce mit TigerVNC:
+Für einen Server ohne Monitor ist ein eigener virtueller Desktop am einfachsten: Xfce in TigerVNC, als Benutzerdienst. Er braucht keinen Login-Manager und bleibt unabhängig von einem späteren Ubuntu Desktop.
 
-```sh
-sudo apt install xfce4 xfce4-goodies tigervnc-standalone-server
-vncpasswd                                   # Passwort für die VNC-Anzeige
-vncserver :1 -localhost yes -geometry 1920x1080 -xstartup /usr/bin/startxfce4
-```
+1. Pakete (ohne Empfehlungen, damit kein lightdm/gdm mitkommt):
 
-Das ergibt Port 5901 (`:1`). Dauerhaft als Dienst: `sudo cp /usr/lib/systemd/system/vncserver@.service /etc/systemd/system/` (falls vorhanden) bzw. eine eigene `systemd`-Unit für den Benutzer anlegen. Auf einem Rechner mit GNOME-Desktop geht stattdessen `gnome-remote-desktop` (VNC-Backend) oder `wayvnc` (Sway/wlroots), jeweils auf localhost.
+   ```sh
+   sudo apt-get install -y --no-install-recommends xfce4 xfce4-terminal xfce4-notifyd tango-icon-theme fonts-dejavu-core dbus-x11 tigervnc-standalone-server
+   ```
+
+2. Startskript `~/.local/bin/devbench-desktop` (ausführbar machen mit `chmod +x`):
+
+   ```sh
+   #!/bin/sh
+   # Virtueller Xfce-Desktop auf :1 = VNC-Port 5901, nur auf localhost
+   export DISPLAY=:1
+   Xtigervnc :1 -localhost -geometry 1920x1080 -depth 24 -SecurityTypes None -AlwaysShared -desktop "$(hostname)" &
+   xpid=$!
+   i=0
+   while [ ! -e /tmp/.X11-unix/X1 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+   dbus-run-session startxfce4
+   kill $xpid 2>/dev/null
+   ```
+
+   Ohne VNC-Passwort, weil der Server nur auf `127.0.0.1` lauscht und DevBench ihn durch SSH erreicht: Verbinden können nur Programme auf dem Server selbst. Wer mehrere Benutzer auf dem Server hat, nimmt stattdessen `-SecurityTypes VncAuth -PasswordFile ~/.vnc/passwd` (Passwort mit `vncpasswd` setzen); DevBench fragt dann beim Öffnen danach.
+
+3. Dienst `~/.config/systemd/user/devbench-desktop.service`:
+
+   ```ini
+   [Unit]
+   Description=Virtual Xfce desktop for DevBench (VNC on 127.0.0.1:5901)
+
+   [Service]
+   ExecStart=%h/.local/bin/devbench-desktop
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=default.target
+   ```
+
+   ```sh
+   systemctl --user enable --now devbench-desktop.service
+   loginctl show-user "$USER" -p Linger    # muss Linger=yes zeigen, sonst: sudo loginctl enable-linger "$USER"
+   ```
+
+   Mit Linger startet der Desktop auch nach einem Neustart, ohne dass jemand angemeldet ist. Abmelden im Xfce-Menü startet ihn neu.
+
+4. In DevBench bei der Maschine unter *Desktop* den Port `5901` eintragen.
+
+Hat der Rechner später einen echten Desktop (z. B. Ubuntu Desktop mit GNOME), geht für dessen Bildschirm `gnome-remote-desktop` (VNC-Backend) oder `wayvnc` (Sway/wlroots), jeweils auf localhost; der virtuelle Desktop kann parallel weiterlaufen.
 
 ---
 
@@ -101,4 +141,4 @@ Das ergibt Port 5901 (`:1`). Dauerhaft als Dienst: `sudo cp /usr/lib/systemd/sys
 - **libvirt:** add the SSH user to group `libvirt`. Buttons map to `virsh start/shutdown/reboot/destroy`. Empty `guest_address` uses `virsh domifaddr`, which only works out of the box on libvirt's NAT network; set it explicitly for bridged VMs.
 - **VNC, `guest` mode** (needed with GPU passthrough): OpenSSH server in the guest (Windows admins: key goes into `C:\ProgramData\ssh\administrators_authorized_keys`), a VNC server such as TightVNC listening on loopback only. A dummy display plug helps if no monitor is attached to the passed-through GPU.
 - **VNC, `host` mode:** QEMU's own VNC display with `listen='127.0.0.1'`; port from `virsh vncdisplay`.
-- **Terminal and desktop of the server:** *Terminal* opens a shell over SSH (on the machine, or in a running guest with `guest_ssh_user`); nothing to install. *Desktop* shows a VNC server running on the machine itself, forwarded through SSH: set `desktop_vnc_port` (0 hides the button). For a headless server, e.g. Xfce plus TigerVNC: `vncserver :1 -localhost yes -xstartup /usr/bin/startxfce4` gives port 5901.
+- **Terminal and desktop of the server:** *Terminal* opens a shell over SSH (on the machine, or in a running guest with `guest_ssh_user`); nothing to install. *Desktop* shows a VNC server running on the machine itself, forwarded through SSH: set `desktop_vnc_port` (0 hides the button). For a headless server: Xfce in TigerVNC as a systemd user service (`Xtigervnc :1 -localhost -SecurityTypes None` plus `dbus-run-session startxfce4`, lingering enabled), which gives port 5901 and needs no display manager.

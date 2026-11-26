@@ -331,6 +331,19 @@ mod live_tests {
             assert!(text.contains("40 120"));
         }
 
+        // The machine's own desktop: DEVBENCH_TEST_DESKTOP_PORT=5901, optionally
+        // DEVBENCH_TEST_SHOT=<file.png> to save what it shows.
+        if let Some(port) = std::env::var("DEVBENCH_TEST_DESKTOP_PORT").ok().and_then(|p| p.parse::<u16>().ok()) {
+            let (conn, ch) = pool.forward(&ep, "127.0.0.1", port).await.map_err(error::AppError::from).unwrap();
+            let screen = vncclient::Screen::connect(conn, ch, String::new()).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let shot = screen.screenshot(1600).await.unwrap();
+            println!("desktop: {}x{}", shot.screen_width, shot.screen_height);
+            if let Ok(path) = std::env::var("DEVBENCH_TEST_SHOT") {
+                std::fs::write(path, &shot.png).unwrap();
+            }
+        }
+
         let Some(vm) = m.vms.first() else { return };
         if vm.guest_ssh_user.is_empty() || !st.vms[0].running {
             return;
