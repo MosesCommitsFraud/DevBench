@@ -21,15 +21,20 @@ use crate::sshconf::{self, Endpoint};
 use crate::status::{self, MachineStatus};
 use crate::wol;
 
+/// (rx, tx) byte counters and when they were read.
+type NetSample = ((u64, u64), Instant);
+/// CPU time per VM id and when it was read.
+type VmCpuSamples = HashMap<String, (u64, Instant)>;
+
 pub struct Core {
     config: RwLock<Config>,
     pool: ssh::Pool,
     /// Last CPU tick sample per machine, so usage covers the whole interval between polls.
     cpu: std::sync::Mutex<HashMap<String, (u64, u64)>>,
     /// Last network counter sample per machine, for the transfer rate.
-    net: std::sync::Mutex<HashMap<String, ((u64, u64), Instant)>>,
+    net: std::sync::Mutex<HashMap<String, NetSample>>,
     /// Last CPU time sample per VM (key: machine id / VM id).
-    vm_cpu: std::sync::Mutex<HashMap<String, HashMap<String, (u64, Instant)>>>,
+    vm_cpu: std::sync::Mutex<HashMap<String, VmCpuSamples>>,
     /// Guest addresses from libvirt, reused for a minute.
     guest_addrs: std::sync::Mutex<HashMap<String, (String, Instant)>>,
     /// Open SFTP sessions per endpoint, with the connection they run on.
