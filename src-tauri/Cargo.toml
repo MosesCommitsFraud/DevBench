@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Control center for home servers and their virtual machines"
 authors = ["DevBench contributors"]
 license = "MIT OR Apache-2.0"
-repository = ""
+repository = "https://github.com/MosesCommitsFraud/DevBench"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

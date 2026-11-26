@@ -6,7 +6,7 @@
   "plugins": {
     "updater": {
       "pubkey": "REPLACE_WITH_THE_CONTENT_OF_devbench.key.pub",
-      "endpoints": ["https://github.com/OWNER/REPO/releases/latest/download/latest.json"]
+      "endpoints": ["https://github.com/MosesCommitsFraud/DevBench/releases/latest/download/latest.json"]
     }
   }
 }

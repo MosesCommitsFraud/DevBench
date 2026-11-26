@@ -56,7 +56,7 @@ Installer für Windows, macOS und Linux liegen unter **Releases** im GitHub-Repo
 #### Bauen und starten
 
 ```sh
-git clone <repo-url> DevBench
+git clone https://github.com/MosesCommitsFraud/DevBench.git
 cd DevBench
 npm install
 npm run tauri dev      # Entwicklungsmodus mit Hot Reload
