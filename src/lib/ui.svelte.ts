@@ -15,6 +15,14 @@ export interface ConfirmRequest {
   resolve: (ok: boolean) => void;
 }
 
+export interface PromptRequest {
+  title: string;
+  label: string;
+  value: string;
+  action: string;
+  resolve: (value: string | null) => void;
+}
+
 export interface HostKeyRequest {
   error: Extract<AppError, { kind: "host_key_unknown" | "host_key_changed" }>;
   resolve: (trusted: boolean) => void;
@@ -24,7 +32,24 @@ export const ui = $state({
   notices: [] as Notice[],
   confirm: null as ConfirmRequest | null,
   hostKey: null as HostKeyRequest | null,
+  prompt: null as PromptRequest | null,
 });
+
+/** Asks for a short text, e.g. a folder name. Resolves null when cancelled. */
+export function prompt(title: string, label: string, value: string, action: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    ui.prompt = {
+      title,
+      label,
+      value,
+      action,
+      resolve: (v) => {
+        ui.prompt = null;
+        resolve(v && v.trim() ? v.trim() : null);
+      },
+    };
+  });
+}
 
 let nextId = 1;
 

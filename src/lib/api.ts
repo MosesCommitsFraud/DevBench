@@ -150,3 +150,40 @@ export function emptyVm(libvirtName = ""): Vm {
     agent_exec: false,
   };
 }
+
+export type Location = { kind: "local" } | { kind: "remote"; machine: string; vm: string | null };
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified: number;
+}
+
+export interface Listing {
+  path: string;
+  parent: string | null;
+  entries: FileEntry[];
+  places: string[];
+}
+
+export interface Progress {
+  id: string;
+  current: string;
+  files_done: number;
+  bytes_done: number;
+  bytes_total: number;
+  state: "running" | "done" | "failed" | "cancelled";
+  error: string | null;
+}
+
+export const files = {
+  list: (loc: Location, path: string | null) => invoke<Listing>("fs_list", { loc, path }),
+  mkdir: (loc: Location, dir: string, name: string) => invoke<void>("fs_mkdir", { loc, dir, name }),
+  rename: (loc: Location, dir: string, path: string, name: string) => invoke<void>("fs_rename", { loc, dir, path, name }),
+  remove: (loc: Location, paths: string[]) => invoke<void>("fs_delete", { loc, paths }),
+  copy: (id: string, from: Location, sources: string[], to: Location, dest: string, moveFiles: boolean) =>
+    invoke<void>("fs_copy", { id, from, sources, to, dest, moveFiles }),
+  cancel: (id: string) => invoke<void>("fs_cancel", { id }),
+};

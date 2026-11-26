@@ -5,7 +5,8 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
-    if (ui.confirm) ui.confirm.resolve(false);
+    if (ui.prompt) ui.prompt.resolve(null);
+    else if (ui.confirm) ui.confirm.resolve(false);
     else if (ui.hostKey) ui.hostKey.resolve(false);
   }
 </script>
@@ -19,10 +20,32 @@
       <h3 id="confirm-title">{c.title}</h3>
       <p class="secondary">{c.body}</p>
       <div class="buttons">
-        <button class="btn ghost" onclick={() => c.resolve(false)}>{t("confirm.cancel")}</button>
+        <!-- Focus starts on Cancel, so a stray Enter never confirms -->
         <!-- svelte-ignore a11y_autofocus -->
-        <button class="btn" class:danger={c.danger} class:primary={!c.danger} autofocus onclick={() => c.resolve(true)}>{c.action}</button>
+        <button class="btn ghost" autofocus onclick={() => c.resolve(false)}>{t("confirm.cancel")}</button>
+        <!-- svelte-ignore a11y_autofocus -->
+        <button class="btn" class:danger={c.danger} class:primary={!c.danger} onclick={() => c.resolve(true)}>{c.action}</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if ui.prompt}
+  {@const p = ui.prompt}
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+    <form class="form" onsubmit={(e) => { e.preventDefault(); p.resolve(p.value); }}>
+      <h3 id="prompt-title">{p.title}</h3>
+      <label class="field">
+        <span>{p.label}</span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input bind:value={p.value} autofocus spellcheck="false" onfocus={(e) => (e.currentTarget as HTMLInputElement).select()} />
+      </label>
+      <div class="buttons">
+        <button type="button" class="btn ghost" onclick={() => p.resolve(null)}>{t("confirm.cancel")}</button>
+        <button type="submit" class="btn primary">{p.action}</button>
+      </div>
+    </form>
     </div>
   </div>
 {/if}
@@ -81,6 +104,10 @@
     display: grid;
     gap: 12px;
     animation: rise var(--enter) var(--ease);
+  }
+  .form {
+    display: grid;
+    gap: 12px;
   }
   h3 {
     margin: 0;

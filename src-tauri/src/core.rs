@@ -8,7 +8,14 @@ use anyhow::{Context, Result, anyhow, bail};
 use russh::Channel;
 use russh::client::Msg;
 
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
+
+use russh_sftp::client::SftpSession;
+
 use crate::config::{self, Config, Machine, Vm, VncMode};
+use crate::files::{Fs, Location, Progress, Transfer};
 use crate::ssh::{self, Conn, ExecOutput, sh_quote};
 use crate::sshconf::{self, Endpoint};
 use crate::status::{self, MachineStatus};
@@ -18,7 +25,13 @@ pub struct Core {
     config: RwLock<Config>,
     pool: ssh::Pool,
     /// Last CPU tick sample per machine, so usage covers the whole interval between polls.
-    cpu: std::sync::Mutex<std::collections::HashMap<String, (u64, u64)>>,
+    cpu: std::sync::Mutex<HashMap<String, (u64, u64)>>,
+    /// Guest addresses from libvirt, reused for a minute.
+    guest_addrs: std::sync::Mutex<HashMap<String, (String, Instant)>>,
+    /// Open SFTP sessions per endpoint, with the connection they run on.
+    sftp: tokio::sync::Mutex<HashMap<String, (Arc<Conn>, Arc<SftpSession>)>>,
+    /// Cancel flags of running file transfers.
+    transfers: std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +92,7 @@ impl Core {
             Err(e) => (Config::default(), Some(format!("{e:#}"))),
         };
         let known_hosts = config::config_dir().map(|d| d.join("known_hosts")).unwrap_or_else(|_| "known_hosts".into());
-        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default() }, err)
+        (Self { config: RwLock::new(config), pool: ssh::Pool::new(known_hosts), cpu: Default::default(), guest_addrs: Default::default(), sftp: Default::default(), transfers: Default::default() }, err)
     }
 
     pub fn config(&self) -> Config {
@@ -179,12 +192,27 @@ impl Core {
         if vm.guest_ssh_user.trim().is_empty() {
             bail!("{} / {}: set the guest SSH user in the settings", m.name, vm.name);
         }
-        let addr = status::guest_address(&self.pool, ep, vm).await?;
+        let key = format!("{}/{}", m.id, vm.id);
+        let cached = self
+            .guest_addrs
+            .lock()
+            .unwrap()
+            .get(&key)
+            .filter(|(_, t)| t.elapsed().as_secs() < 60)
+            .map(|(a, _)| a.clone());
+        let addr = match cached {
+            Some(a) => a,
+            None => {
+                let a = status::guest_address(&self.pool, ep, vm).await?;
+                self.guest_addrs.lock().unwrap().insert(key, (a.clone(), Instant::now()));
+                a
+            }
+        };
         Ok(sshconf::guest_endpoint(ep, vm, &addr))
     }
 
     /// The endpoint commands and files go to: the machine, or a guest when `vm` is given.
-    async fn target(&self, machine: &str, vm: Option<&str>) -> Result<Endpoint> {
+    pub async fn target(&self, machine: &str, vm: Option<&str>) -> Result<Endpoint> {
         match vm {
             None => Ok(self.machine(machine)?.1),
             Some(v) => {
@@ -199,22 +227,74 @@ impl Core {
         self.pool.exec(&ep, command, timeout).await
     }
 
-    async fn sftp(&self, machine: &str, vm: Option<&str>) -> Result<russh_sftp::client::SftpSession> {
-        let ep = self.target(machine, vm).await?;
+    /// Files on this PC or, over SFTP, on a machine or guest.
+    pub async fn fs(&self, loc: &Location) -> Result<Fs> {
+        let Location::Remote { machine, vm } = loc else { return Ok(Fs::Local) };
+        let ep = self.target(machine, vm.as_deref()).await?;
+        let key = ep.cache_key();
+        let mut cache = self.sftp.lock().await;
+        if let Some((conn, s)) = cache.get(&key) {
+            if !conn.handle.is_closed() {
+                return Ok(Fs::Remote(s.clone()));
+            }
+        }
         let conn = self.pool.get(&ep).await?;
         let ch = conn.handle.channel_open_session().await.context("opening an SSH channel")?;
         ch.request_subsystem(true, "sftp").await.context("starting SFTP")?;
-        russh_sftp::client::SftpSession::new(ch.into_stream()).await.map_err(|e| anyhow!("SFTP: {e}"))
+        let s = Arc::new(SftpSession::new(ch.into_stream()).await.map_err(|e| anyhow!("SFTP: {e}"))?);
+        cache.insert(key, (conn, s.clone()));
+        Ok(Fs::Remote(s))
     }
 
-    pub async fn read_file(&self, machine: &str, vm: Option<&str>, path: &str) -> Result<Vec<u8>> {
-        let sftp = self.sftp(machine, vm).await?;
-        sftp.read(path).await.map_err(|e| anyhow!("reading {path}: {e}"))
+    /// Drops a cached SFTP session after an error, so the next call opens a fresh one.
+    pub async fn forget_fs(&self, loc: &Location) {
+        if let Location::Remote { machine, vm } = loc {
+            if let Ok(ep) = self.target(machine, vm.as_deref()).await {
+                self.sftp.lock().await.remove(&ep.cache_key());
+            }
+        }
     }
 
-    pub async fn write_file(&self, machine: &str, vm: Option<&str>, path: &str, data: &[u8]) -> Result<()> {
-        let sftp = self.sftp(machine, vm).await?;
-        sftp.write(path, data).await.map_err(|e| anyhow!("writing {path}: {e}"))
+    /// Copies (or moves) `sources` from one place into the folder `dest` at another.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn copy(
+        &self,
+        id: String,
+        from: &Location,
+        sources: &[String],
+        to: &Location,
+        dest: &str,
+        move_files: bool,
+        report: &(dyn Fn(&Progress) + Send + Sync),
+    ) -> Result<()> {
+        let src = self.fs(from).await?;
+        if move_files && from == to {
+            for s in sources {
+                src.rename(s, &src.join(dest, &src.name(s))).await?;
+            }
+            return Ok(());
+        }
+        let dst = if from == to { None } else { Some(self.fs(to).await?) };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.transfers.lock().unwrap().insert(id.clone(), cancel.clone());
+        let result = {
+            let mut t = Transfer::new(id.clone(), &src, dst.as_ref().unwrap_or(&src), cancel, report);
+            t.copy(sources, dest).await
+        };
+        self.transfers.lock().unwrap().remove(&id);
+        result?;
+        if move_files {
+            for s in sources {
+                src.remove(s).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn cancel_transfer(&self, id: &str) {
+        if let Some(c) = self.transfers.lock().unwrap().get(id) {
+            c.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// A forwarded TCP connection to the VM's VNC server, plus a display title.

@@ -4,6 +4,7 @@ mod activity;
 mod config;
 mod core;
 mod error;
+mod files;
 mod ssh;
 mod sshconf;
 mod status;
@@ -87,6 +88,78 @@ fn trust_host_key(state: State<'_, AppState>, host: String, port: u16, key: Stri
 }
 
 #[tauri::command]
+async fn fs_list(state: State<'_, AppState>, loc: files::Location, path: Option<String>) -> CmdResult<files::Listing> {
+    let fs = state.core.fs(&loc).await?;
+    let path = match path.filter(|p| !p.trim().is_empty()) {
+        Some(p) => p,
+        None => fs.home().await?,
+    };
+    match fs.list(&path).await {
+        Ok(l) => Ok(l),
+        Err(e) => {
+            state.core.forget_fs(&loc).await;
+            Err(e.into())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fs_mkdir(state: State<'_, AppState>, loc: files::Location, dir: String, name: String) -> CmdResult<()> {
+    let fs = state.core.fs(&loc).await?;
+    Ok(fs.mkdir(&fs.join(&dir, &name)).await?)
+}
+
+#[tauri::command]
+async fn fs_rename(state: State<'_, AppState>, loc: files::Location, dir: String, path: String, name: String) -> CmdResult<()> {
+    let fs = state.core.fs(&loc).await?;
+    Ok(fs.rename(&path, &fs.join(&dir, &name)).await?)
+}
+
+#[tauri::command]
+async fn fs_delete(state: State<'_, AppState>, loc: files::Location, paths: Vec<String>) -> CmdResult<()> {
+    let fs = state.core.fs(&loc).await?;
+    for p in paths {
+        fs.remove(&p).await?;
+    }
+    Ok(())
+}
+
+/// Starts a copy or move in the background; progress arrives as `transfer` events.
+#[tauri::command]
+fn fs_copy(
+    app: tauri::AppHandle,
+    id: String,
+    from: files::Location,
+    sources: Vec<String>,
+    to: files::Location,
+    dest: String,
+    move_files: bool,
+) {
+    use tauri::{Emitter, Manager};
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let emit = |p: &files::Progress| {
+            let _ = app.emit("transfer", p);
+        };
+        let result = state.core.copy(id.clone(), &from, &sources, &to, &dest, move_files, &emit).await;
+        let (st, error) = match result {
+            Ok(()) => ("done", None),
+            Err(e) if format!("{e:#}").contains("cancelled") => ("cancelled", None),
+            Err(e) => ("failed", Some(format!("{e:#}"))),
+        };
+        let _ = app.emit(
+            "transfer",
+            files::Progress { id, current: String::new(), files_done: 0, bytes_done: 0, bytes_total: 0, state: st, error },
+        );
+    });
+}
+
+#[tauri::command]
+fn fs_cancel(state: State<'_, AppState>, id: String) {
+    state.core.cancel_transfer(&id);
+}
+
+#[tauri::command]
 fn activity(limit: usize) -> Vec<activity::Entry> {
     activity::recent(limit.min(1000))
 }
@@ -135,6 +208,12 @@ pub fn run() {
             trust_host_key,
             vnc_open,
             activity,
+            fs_list,
+            fs_mkdir,
+            fs_rename,
+            fs_delete,
+            fs_copy,
+            fs_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running DevBench");

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Server, Activity, Settings } from "@lucide/svelte";
+  import { Server, Activity, Settings, FolderOpen } from "@lucide/svelte";
   import { api, type Machine, type Vm } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { live, loadConfig, startPolling, store, wakeAll } from "./lib/store.svelte";
@@ -8,12 +8,13 @@
   import MachinePanel from "./components/MachinePanel.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import ActivityView from "./components/ActivityView.svelte";
+  import FilesView from "./components/FilesView.svelte";
   import VncView from "./components/VncView.svelte";
   import Overlays from "./components/Overlays.svelte";
   import UpdateNotice from "./components/UpdateNotice.svelte";
   import Titlebar from "./components/Titlebar.svelte";
 
-  type View = "machines" | "activity" | "settings";
+  type View = "machines" | "files" | "activity" | "settings";
   let view = $state<View>("machines");
   let screen = $state<{ machine: Machine; vm: Vm } | null>(null);
   let ready = $state(false);
@@ -58,6 +59,9 @@
         </button>
       {/each}
       <div class="gap"></div>
+      <button class="nav" class:active={view === "files"} onclick={() => (view = "files")}>
+        <FolderOpen size={16} strokeWidth={1.5} />{t("nav.files")}
+      </button>
       <button class="nav" class:active={view === "activity"} onclick={() => (view = "activity")}>
         <Activity size={16} strokeWidth={1.5} />{t("nav.activity")}
       </button>
@@ -68,7 +72,7 @@
     <UpdateNotice />
   </aside>
 
-  <main>
+  <main class:fill={view === "files"}>
     {#if !ready}
       <div></div>
     {:else if view === "machines"}
@@ -85,6 +89,8 @@
           {/each}
         </div>
       {/if}
+    {:else if view === "files"}
+      <FilesView />
     {:else if view === "activity"}
       <ActivityView />
     {:else}
@@ -181,6 +187,10 @@
   main > :global(*) {
     max-width: 1200px;
     margin: 0 auto;
+  }
+  main.fill {
+    overflow: hidden;
+    padding: 24px;
   }
   .machines {
     display: grid;
