@@ -1,0 +1,74 @@
+# DevBench example config
+#
+# The real config lives in your OS's app config folder, NOT in this repo:
+#   Windows: %APPDATA%\DevBench\config.toml
+#   Linux:   ~/.config/DevBench/config.toml
+#   macOS:   ~/Library/Application Support/DevBench/config.toml
+#
+# DevBench creates it empty on first start. You normally edit it in the app's
+# Settings screen; you can also copy this file there and adapt it by hand
+# (then press "Reload" in the app or restart it).
+#
+# All values below are placeholders (documentation addresses from RFC 5737,
+# example names). Replace them with your own.
+
+[[machines]]
+id = "server-1"                    # stable internal id, any unique string (the app generates one)
+name = "Home server"               # display name in the dashboard
+ssh_host = "homeserver"            # hostname, IP (e.g. 192.0.2.10) or a Host alias from ~/.ssh/config
+ssh_port = 0                       # 0 = take the port from ~/.ssh/config, else 22
+ssh_user = ""                      # "" = take User from ~/.ssh/config, else your local user name
+ssh_key = ""                       # "" = IdentityFile from ~/.ssh/config, else ~/.ssh/id_ed25519, id_ecdsa, id_rsa; ssh-agent is tried too
+jump_host = ""                     # optional, like ProxyJump: [user@]host[:port] or an alias; "" = ProxyJump from ~/.ssh/config
+mac = "00:11:22:33:44:55"          # MAC of the server's network card for Wake-on-LAN; "" hides the Wake button
+wol_broadcast = "192.0.2.255"      # broadcast address of the server's LAN (or 255.255.255.255)
+wol_port = 9                       # UDP port for the magic packet (9 or 7)
+# AI agents (MCP, see docs/agents.md). All off by default.
+agent_access = false               # agents may see this machine: status, wake, list VMs
+agent_exec = false                 # agents may run shell commands and read/write files here
+agent_power = false                # agents may power off/reboot this machine and force off its VMs
+
+  [[machines.vms]]
+  id = "vm-1"
+  name = "Windows VM"
+  libvirt_name = "win11"           # domain name as shown by `virsh list --all`
+  libvirt_uri = "qemu:///system"
+  guest_address = ""               # "" = ask libvirt (`virsh domifaddr`), else IP/hostname as seen from the server, e.g. 198.51.100.20
+  guest_ssh_user = "vmuser"        # user for SSH into the guest (needed for vnc_mode = "guest")
+  guest_ssh_port = 22
+  guest_ssh_key = ""               # "" = same key resolution as for the machine
+  vnc_mode = "guest"               # "guest": SSH through the server into the guest, then to vnc_host:vnc_port inside the guest
+                                   # "host":  forward from the server to vnc_host:vnc_port (e.g. QEMU's own VNC display)
+                                   # "none":  no VNC button
+  vnc_host = "127.0.0.1"           # as seen from the guest ("guest" mode) or from the server ("host" mode)
+  vnc_port = 5900
+  agent_access = false             # agents may start/stop this VM, take screenshots, use mouse and keyboard
+  agent_exec = false               # agents may run commands and read/write files inside the guest
+
+  # A second VM that uses QEMU's built-in VNC display on the server instead of
+  # a VNC server inside the guest (no guest SSH needed).
+  [[machines.vms]]
+  id = "vm-2"
+  name = "Linux VM"
+  libvirt_name = "ubuntu-test"
+  libvirt_uri = "qemu:///system"
+  guest_address = ""
+  guest_ssh_user = ""
+  guest_ssh_port = 22
+  guest_ssh_key = ""
+  vnc_mode = "host"
+  vnc_host = "127.0.0.1"
+  vnc_port = 5901                  # see `virsh vncdisplay ubuntu-test`: ":1" means port 5901
+
+# A second machine reached through the first one as a jump host.
+[[machines]]
+id = "server-2"
+name = "Second server"
+ssh_host = "192.0.2.11"
+ssh_port = 22
+ssh_user = "admin"
+ssh_key = "~/.ssh/id_ed25519"
+jump_host = "homeserver"
+mac = ""
+wol_broadcast = "255.255.255.255"
+wol_port = 9

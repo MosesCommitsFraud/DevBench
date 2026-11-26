@@ -1,0 +1,23 @@
+# /etc/sudoers.d/devbench
+#
+# Lets DevBench shut down and reboot this server over SSH without a password,
+# and nothing else. DevBench runs exactly:
+#     sudo -n systemctl poweroff
+#     sudo -n systemctl reboot
+#
+# Install (on the server, never copy it in with cp/scp directly):
+#     1. Replace YOUR_USER below with the SSH user DevBench logs in as.
+#     2. Check the path of systemctl:  command -v systemctl
+#        (usually /usr/bin/systemctl; change both paths below if it differs)
+#     3. sudo visudo -f /etc/sudoers.d/devbench
+#        paste the rule line, save; visudo checks the syntax before saving.
+#     4. sudo chmod 0440 /etc/sudoers.d/devbench
+#     5. Test (as YOUR_USER):  sudo -n -l
+#        The output must list exactly these two commands with NOPASSWD.
+#
+# Remove: sudo rm /etc/sudoers.d/devbench
+#
+# The rule allows only these exact command lines (no other arguments), so it
+# cannot be used to run anything else as root.
+
+YOUR_USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
