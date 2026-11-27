@@ -1,5 +1,6 @@
 // What each server has of what DevBench needs, and how many updates wait there. Checked when
 // a machine comes online, every 30 minutes after that, and after a setup step ran.
+import { untrack } from "svelte";
 import { api, asAppError, type ServerCheck } from "./api";
 import { store } from "./store.svelte";
 
@@ -7,7 +8,16 @@ export const servers = $state<Record<string, { check: ServerCheck | null; error:
 
 const EVERY = 30 * 60 * 1000;
 
-export async function checkServer(machine: string) {
+// One check per server at a time: a second call while one runs gets the running one.
+const inFlight: Record<string, Promise<void>> = {};
+
+/** Checks a server. Safe to call from an $effect: reading and writing `servers` is untracked
+ *  here, so the caller's effect does not re-run (and check again) each time the result lands. */
+export function checkServer(machine: string): Promise<void> {
+  return (inFlight[machine] ??= untrack(() => runCheck(machine)).finally(() => delete inFlight[machine]));
+}
+
+async function runCheck(machine: string) {
   const prev = servers[machine];
   servers[machine] = { check: prev?.check ?? null, error: null, loading: true, at: prev?.at ?? 0 };
   try {
