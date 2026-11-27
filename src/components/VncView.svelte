@@ -5,6 +5,7 @@
   import { api, type Machine, type Vm } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { run } from "../lib/ui.svelte";
+  import ErrorNote from "./ErrorNote.svelte";
 
   // A VM's screen, or the machine's own desktop when vm is null
   let { machine, vm, onClose }: { machine: Machine; vm: Vm | null; onClose: () => void } = $props();
@@ -19,6 +20,9 @@
   let fit = $state(localStorage.getItem("devbench.vnc.fit") !== "0");
   let fullscreen = $state(false);
   let password = $state("");
+  // No picture after this long: say so instead of "Connecting" forever.
+  const CONNECT_TIMEOUT = 30_000;
+  let connectTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function connect() {
     teardown();
@@ -35,19 +39,27 @@
       return;
     }
     const r = new RFB(screen, url);
+    clearTimeout(connectTimer);
+    connectTimer = setTimeout(() => {
+      if (rfb !== r || phase !== "connecting") return;
+      problem = t("vnc.timeout");
+      teardown();
+      phase = "disconnected";
+    }, CONNECT_TIMEOUT);
     r.scaleViewport = fit;
     r.clipViewport = !fit;
     r.resizeSession = false;
     r.focusOnClick = true;
     r.background = "transparent";
     r.addEventListener("connect", () => {
+      clearTimeout(connectTimer);
       phase = "connected";
       r.focus();
     });
     r.addEventListener("disconnect", (e) => {
       if (rfb !== r) return;
       phase = "disconnected";
-      if (!e.detail.clean && !problem) problem = t("vnc.disconnected");
+      if (!e.detail.clean && !problem) problem = t("err.closed");
     });
     r.addEventListener("credentialsrequired", () => (phase = "password"));
     r.addEventListener("securityfailure", (e) => (problem = t("vnc.security", e.detail.reason ?? String(e.detail.status))));
@@ -106,14 +118,17 @@
   onMount(() => {
     void connect();
   });
-  onDestroy(teardown);
+  onDestroy(() => {
+    clearTimeout(connectTimer);
+    teardown();
+  });
 </script>
 
 <svelte:document onfullscreenchange={onFullscreenChange} />
 
 <div class="vnc" bind:this={root}>
   <header>
-    <button class="btn ghost" onclick={onClose}><ArrowLeft size={16} strokeWidth={1.5} />{t("vnc.close")}</button>
+    <button class="btn ghost back" onclick={onClose}><ArrowLeft size={16} strokeWidth={1.5} />{t("vnc.close")}</button>
     <div class="title">
       <span class="led" class:on={phase === "connected"} class:busy={phase === "connecting" || phase === "password"}></span>
       <span>{title}</span>
@@ -154,7 +169,7 @@
           </form>
         {:else}
           <p class="secondary">{t("vnc.disconnected")}</p>
-          {#if problem}<p class="mono muted problem">{problem}</p>{/if}
+          {#if problem}<ErrorNote message={problem} center />{/if}
           <button class="btn primary" onclick={connect}><RefreshCw size={16} strokeWidth={1.5} />{t("vnc.reconnect")}</button>
         {/if}
       </div>
@@ -180,6 +195,10 @@
     padding: 0 8px;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
+  }
+  /* Only as wide as its text, not the whole first column */
+  .back {
+    justify-self: start;
   }
   .title {
     display: flex;
@@ -216,10 +235,6 @@
   }
   .state p {
     margin: 0;
-  }
-  .problem {
-    max-width: 560px;
-    overflow-wrap: anywhere;
   }
   form {
     display: grid;

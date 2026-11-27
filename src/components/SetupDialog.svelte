@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { X, RefreshCw, Code, ArrowUpCircle, Wrench } from "@lucide/svelte";
+  import { X, RefreshCw, Code, ArrowUpCircle, Wrench, ScrollText } from "@lucide/svelte";
   import { api, type Machine, type SetupStep } from "../lib/api";
-  import { t } from "../lib/i18n.svelte";
+  import { lang, t } from "../lib/i18n.svelte";
   import { checkServer, servers } from "../lib/server.svelte";
-  import { setConfig, store } from "../lib/store.svelte";
+  import { live, setConfig, store } from "../lib/store.svelte";
+  import ErrorNote from "./ErrorNote.svelte";
   import { run } from "../lib/ui.svelte";
 
   // What DevBench needs on a server, what is there, and the updates waiting. Installing and
@@ -12,6 +13,20 @@
 
   const s = $derived(servers[machine.id]);
   const c = $derived(s?.check ?? null);
+  // Live from the status poll (every few seconds); the check only knows it at the time it ran.
+  const updating = $derived(live(machine.id).status?.updating ?? null);
+  const running = $derived(!!updating?.devbench || (!!c?.updating && !live(machine.id).status));
+  const last = $derived(c?.last_update ?? null);
+
+  function when(secs: number): string {
+    return new Date(secs * 1000).toLocaleString(lang() === "de" ? "de-DE" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  const lastText = $derived.by(() => {
+    if (!last?.started || running) return "";
+    const at = when(last.finished ?? last.started);
+    if (last.code == null) return t("update.lastCut", at);
+    return last.code === 0 ? t("update.lastOk", at, last.upgraded) : t("update.lastFailed", at, last.code);
+  });
   let shown = $state<SetupStep | null>(null);
   let script = $state("");
 
@@ -75,7 +90,7 @@
       </div>
     </header>
 
-    {#if s?.error}<p class="err mono">{s.error}</p>{/if}
+    {#if s?.error}<div class="err"><ErrorNote message={s.error} /></div>{/if}
 
     {#if !c}
       <p class="hint">{t("setup.checking")} …</p>
@@ -83,6 +98,16 @@
       <section>
         <span class="eyebrow">{t("setup.updates")}</span>
         <div class="rows">
+          {#if running}
+            <div class="part">
+              <span class="dot busy"></span>
+              <div class="what">
+                <span class="name">{t("update.running")} …</span>
+                {#if updating?.line}<span class="detail mono line" title={updating.line}>{updating.line}</span>{/if}
+              </div>
+              <button class="btn primary" onclick={() => onRun("update-log")}><ScrollText size={14} strokeWidth={1.75} />{t("update.follow")}</button>
+            </div>
+          {:else}
           <div class="part">
             <span class="dot" class:on={!c.updates && !c.snap_updates} class:busy={!!(c.updates || c.snap_updates)}></span>
             <div class="what">
@@ -95,12 +120,23 @@
               </span>
               {#if c.security_updates}<span class="detail warn">{t("setup.security", c.security_updates)}</span>{/if}
               {#if c.reboot_required}<span class="detail warn">{t("setup.reboot")}</span>{/if}
+              {#if updating && !updating.devbench}<span class="detail warn">{t("update.system", updating.process)}</span>{/if}
+              {#if c.packages.length}
+                <span class="detail mono pkgs" title={c.packages.join(" ")}>{t("update.waiting")}: {c.packages.join(", ")}</span>
+              {/if}
+              {#if lastText}<span class="detail" class:warn={last?.code !== 0}>{lastText}</span>{/if}
+              {#if last?.phased && c.updates}<span class="detail">{t("update.phased")}</span>{/if}
+              {#if last?.kept_back && c.updates}<span class="detail">{t("update.keptBack")}</span>{/if}
             </div>
+            {#if last}
+              <button class="btn ghost icon" title={t("update.log")} aria-label={t("update.log")} onclick={() => onRun("update-log")}><ScrollText size={15} strokeWidth={1.5} /></button>
+            {/if}
             <button class="btn ghost icon" title={t("setup.showScript")} aria-label={t("setup.showScript")} onclick={() => toggleScript("updates")}><Code size={15} strokeWidth={1.5} /></button>
             <button class="btn" class:primary={!!(c.updates || c.snap_updates)} disabled={!c.apt} onclick={() => start("updates")}>
               <ArrowUpCircle size={14} strokeWidth={1.75} />{t("setup.update")}
             </button>
           </div>
+          {/if}
           {#if shown === "updates"}<pre class="script mono">{script}</pre>{/if}
         </div>
       </section>
@@ -231,9 +267,15 @@
     font-size: 12px;
   }
   .err {
-    font-size: 12px;
-    color: var(--danger);
-    overflow-wrap: anywhere;
+    padding: 10px 12px;
+    border-radius: var(--r-control);
+    background: var(--sunken);
+  }
+  .line,
+  .pkgs {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .spin {
     display: inline-flex;

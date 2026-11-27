@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Monitor, Play, SquareTerminal, Ellipsis, Square, RotateCcw, Power, FolderOpen, EthernetPort, ArrowUpRight } from "@lucide/svelte";
+  import { Monitor, Play, SquareTerminal, Ellipsis, Square, RotateCcw, Power, FolderOpen, EthernetPort, ArrowUpRight, Check, Timer } from "@lucide/svelte";
   import type { Machine, Vm, VmStatus } from "../lib/api";
   import { bytes, duration, gb } from "../lib/format";
   import { guests } from "../lib/guests.svelte";
@@ -21,6 +21,7 @@
     onOpen,
     onFiles,
     onAction,
+    onAutostart,
   }: {
     machine: Machine;
     vm: Vm | null;
@@ -31,6 +32,7 @@
     onOpen: (kind: "screen" | "terminal") => void;
     onFiles?: () => void;
     onAction?: (action: "start" | "shutdown" | "reboot" | "destroy") => void;
+    onAutostart?: (enabled: boolean) => void;
   } = $props();
 
   const isDesktop = $derived(vm === null);
@@ -71,7 +73,13 @@
   const hasGuest = $derived(!!(vm && running && guests[`${machine.id}/${vm.id}`]?.stats));
   const facts = $derived(
     vm && vs
-      ? [vs.vcpus ? t("vm.vcpus", vs.vcpus) : "", vs.memory ? gb(vs.memory) : "", vs.ip, running && vs.cpu_percent != null && !hasGuest ? `CPU ${Math.round(vs.cpu_percent)} %` : ""].filter(Boolean)
+      ? [
+          vs.vcpus ? t("vm.vcpus", vs.vcpus) : "",
+          vs.memory ? gb(vs.memory) : "",
+          vs.ip,
+          running && vs.cpu_percent != null && !hasGuest ? `CPU ${Math.round(vs.cpu_percent)} %` : "",
+          vs.autostart ? t("vm.autostartOn") : "",
+        ].filter(Boolean)
       : isDesktop
         ? [`VNC :${machine.desktop_vnc_port}`]
         : [vm?.libvirt_name ?? ""],
@@ -91,6 +99,13 @@
     bigPos = { left, top };
   }
 </script>
+
+{#snippet autostartItem()}
+  <button role="menuitemcheckbox" aria-checked={!!vs?.autostart} disabled={busy.autostart} onclick={() => onAutostart?.(!vs?.autostart)}>
+    <Timer size={15} strokeWidth={1.5} />{t("vm.autostart")}
+    {#if vs?.autostart}<span class="check"><Check size={14} strokeWidth={2} /></span>{/if}
+  </button>
+{/snippet}
 
 <div class="row" class:off={!running}>
   <button class="thumb" disabled={!canScreen} onclick={() => onOpen("screen")} onpointerenter={placeBig} onpointermove={placeBig} aria-label={t("vm.openScreen")}>
@@ -126,6 +141,12 @@
   <div class="actions">
     {#if vm && online && vs && !running && !pending}
       <button class="btn" disabled={busy.start} onclick={() => onAction?.("start")}><Play size={14} strokeWidth={1.75} />{t("vm.start")}</button>
+      {#if onAutostart}
+        <Menu label={t("vm.more")}>
+          {#snippet trigger()}<Ellipsis size={15} strokeWidth={1.5} />{/snippet}
+          {@render autostartItem()}
+        </Menu>
+      {/if}
     {:else if running}
       {#if canScreen}
         <button class="btn" onclick={() => onOpen("screen")}><Monitor size={14} strokeWidth={1.75} />{t("vm.screen")}</button>
@@ -149,6 +170,7 @@
           <button disabled={busy.shutdown} onclick={() => onAction?.("shutdown")}><Square size={15} strokeWidth={1.5} />{t("vm.shutdown")}</button>
           <button onclick={() => onAction?.("reboot")}><RotateCcw size={15} strokeWidth={1.5} />{t("vm.reboot")}</button>
           <button class="danger" onclick={() => onAction?.("destroy")}><Power size={15} strokeWidth={1.5} />{t("vm.destroy")}</button>
+          {#if onAutostart}{@render autostartItem()}{/if}
         </Menu>
       {/if}
     {/if}
@@ -281,6 +303,11 @@
     display: flex;
     align-items: center;
     gap: 4px;
+  }
+  .check {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--text-2);
   }
   .forwards {
     display: flex;

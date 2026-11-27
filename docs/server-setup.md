@@ -6,6 +6,10 @@ DevBench meldet sich per SSH an, liest den Zustand und führt ein paar Befehle a
 
 **Einfacher Weg (apt, also Debian/Ubuntu):** Im Menü (⋯) des Servers öffnet **Einrichten & Updates** eine Übersicht: KVM/libvirt, die Regel zum Herunterfahren und der virtuelle Desktop, jeweils mit Zustand, dazu die wartenden Paket- und Snap-Updates. **Einrichten** bzw. **Aktualisieren** führt die Schritte im Terminal von DevBench aus. Dort fragt sudo selbst nach dem Passwort; DevBench sieht es nicht und speichert es nicht. Die Befehle jedes Schritts lassen sich vorher anzeigen. Sie entsprechen den Anleitungen weiter unten. Ohne diesen Klick installiert DevBench nichts.
 
+**Updates** laufen nach der Passwortabfrage auf dem Server als Dienst `devbench-update` (über `systemd-run`, das Skript liegt in `/usr/local/sbin/devbench-update`). Sie laufen also weiter, wenn das Terminal geschlossen wird oder die Verbindung abreißt. Die Ausgabe landet in `/var/log/devbench-update.log`. Solange ein Update läuft, zeigt die Seite des Servers „Updates werden installiert“ mit der letzten Zeile des Protokolls und **Mitverfolgen**; danach zeigt der Dialog, wann das letzte Update lief, wie viele Pakete es aktualisiert hat oder wo es abgebrochen ist (**Protokoll**). Updates, die Ubuntu gestaffelt verteilt (phased updates), installiert apt erst später; sie bleiben bis dahin in der Zahl. Auch wenn das System selbst gerade Pakete installiert (z. B. `unattended-upgrades`), sagt DevBench das.
+
+**Autostart von VMs:** Ob libvirt eine VM beim Hochfahren des Servers startet, steht in ihrer Zeile („startet mit dem Server“) und lässt sich im Menü (⋯) der VM unter **Mit dem Server starten** umschalten (`virsh autostart [--disable]`).
+
 ## Server (Linux)
 
 - **OpenSSH-Server** mit Schlüssel-Anmeldung. Vom PC aus muss `ssh <host>` ohne Passwortabfrage klappen (Schlüssel ohne Passphrase oder im ssh-agent).
@@ -139,7 +143,8 @@ Hat der Rechner später einen echten Desktop (z. B. Ubuntu Desktop mit GNOME), g
 
 ## English summary
 
-- **Setup & updates (apt):** the server's menu → *Setup & updates* checks libvirt, the shutdown rule and the virtual desktop, counts package and snap updates, and runs the missing steps or the updates in DevBench's terminal, where sudo asks for the password itself. DevBench installs nothing without that click.
+- **Setup & updates (apt):** the server's menu → *Setup & updates* checks libvirt, the shutdown rule and the virtual desktop, counts package and snap updates, and runs the missing steps or the updates in DevBench's terminal, where sudo asks for the password itself. DevBench installs nothing without that click. Updates then run as the service `devbench-update` (log in `/var/log/devbench-update.log`), so they go on when the terminal closes; the server's page shows their progress, and the dialog the last result and the log.
+- **VM autostart:** a VM's menu (⋯) → *Start with the server* switches libvirt's autostart on or off.
 - **Server:** OpenSSH with key auth, Linux with `/proc`. Shut down/reboot need the sudoers drop-in in [`sudoers-devbench`](sudoers-devbench). Wake-on-LAN: [wake-on-lan.md](wake-on-lan.md). Unknown host keys are shown with their fingerprint and must be confirmed; changed keys are refused.
 - **libvirt:** add the SSH user to group `libvirt`. Buttons map to `virsh start/shutdown/reboot/destroy`. Empty `guest_address` uses `virsh domifaddr`, which only works out of the box on libvirt's NAT network; set it explicitly for bridged VMs.
 - **VNC, `guest` mode** (needed with GPU passthrough): OpenSSH server in the guest (Windows admins: key goes into `C:\ProgramData\ssh\administrators_authorized_keys`), a VNC server such as TightVNC listening on loopback only. A dummy display plug helps if no monitor is attached to the passed-through GPU.

@@ -166,16 +166,22 @@ impl Pool {
     /// Runs a command; reconnects once if the pooled connection turned out to be dead.
     pub async fn exec(&self, ep: &Endpoint, command: &str, timeout: Duration) -> Result<ExecOutput> {
         let conn = self.get(ep).await?;
-        let ch = match conn.handle.channel_open_session().await {
+        let mut ch = match conn.handle.channel_open_session().await {
             Ok(ch) => ch,
             Err(_) => {
                 self.evict(ep);
                 self.get(ep).await?.handle.channel_open_session().await.context("opening an SSH session channel")?
             }
         };
-        tokio::time::timeout(timeout, run(ch, command))
-            .await
-            .map_err(|_| anyhow!("command timed out after {}s", timeout.as_secs()))?
+        match tokio::time::timeout(timeout, run(&mut ch, command)).await {
+            Ok(r) => r,
+            Err(_) => {
+                // Close the channel: dropping it leaves the session open on the server, where it
+                // counts against sshd's MaxSessions (10) until every new command is refused.
+                let _ = tokio::time::timeout(Duration::from_secs(2), ch.close()).await;
+                Err(anyhow!("command timed out after {}s", timeout.as_secs()))
+            }
+        }
     }
 
     /// Opens a forwarded TCP connection from `ep` to `host:port` (like `ssh -L`). The returned
@@ -195,7 +201,15 @@ impl Pool {
     }
 }
 
-async fn run(mut ch: Channel<Msg>, command: &str) -> Result<ExecOutput> {
+/// A Linux shell script that the server itself stops after `secs` (killed 3 s later if it does
+/// not stop), so a command that hangs there (apt-check, virsh on a busy libvirt) cannot pile up
+/// when DevBench gives up waiting and asks again.
+pub fn bounded(script: &str, secs: u64) -> String {
+    let q = sh_quote(script);
+    format!("if command -v timeout >/dev/null 2>&1; then exec timeout -k 3 {secs} sh -c {q}; else exec sh -c {q}; fi")
+}
+
+async fn run(ch: &mut Channel<Msg>, command: &str) -> Result<ExecOutput> {
     ch.exec(true, command).await?;
     let (mut out, mut err, mut code) = (Vec::new(), Vec::new(), None);
     while let Some(msg) = ch.wait().await {

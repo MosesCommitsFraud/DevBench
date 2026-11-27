@@ -55,6 +55,17 @@ export interface VmStatus {
   memory: number;
   cpu_percent: number | null;
   ip: string;
+  /** libvirt starts the VM when the host boots. */
+  autostart: boolean;
+}
+
+/** Packages being installed right now. */
+export interface Updating {
+  /** DevBench's update service; false = apt/dpkg on their own (e.g. unattended-upgrades). */
+  devbench: boolean;
+  process: string;
+  /** Latest line of the update log. */
+  line: string;
 }
 
 export interface MachineStatus {
@@ -76,6 +87,7 @@ export interface MachineStatus {
   net_rx_rate: number;
   net_tx_rate: number;
   vms: VmStatus[];
+  updating: Updating | null;
 }
 
 export interface ForwardInfo {
@@ -128,9 +140,22 @@ export interface ServerCheck {
   snap_updates: number;
   reboot_required: boolean;
   apt: boolean;
+  packages: string[];
+  updating: boolean;
+  last_update: LastUpdate | null;
 }
 
-export type SetupStep = "updates" | "libvirt" | "power" | "desktop";
+export interface LastUpdate {
+  /** Unix seconds. finished is null while it runs or when it was cut off. */
+  started: number | null;
+  finished: number | null;
+  code: number | null;
+  upgraded: number;
+  phased: boolean;
+  kept_back: boolean;
+}
+
+export type SetupStep = "updates" | "update-log" | "libvirt" | "power" | "desktop";
 
 export interface SshHostEntry {
   alias: string;
@@ -182,6 +207,7 @@ export const api = {
   power: (machineId: string, action: "poweroff" | "reboot") => invoke<void>("power", { machineId, action }),
   vmAction: (machineId: string, vmId: string, action: "start" | "shutdown" | "reboot" | "destroy") =>
     invoke<void>("vm_action", { machineId, vmId, action }),
+  vmAutostart: (machineId: string, vmId: string, enabled: boolean) => invoke<void>("vm_autostart", { machineId, vmId, enabled }),
   listDomains: (machineId: string, uri: string) => invoke<string[]>("list_domains", { machineId, uri }),
   trustHostKey: (host: string, port: number, key: string) => invoke<void>("trust_host_key", { host, port, key }),
   /** A VM's screen, or the machine's own desktop when vmId is null. */

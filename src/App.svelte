@@ -142,7 +142,7 @@
           {#each store.config.machines as m (m.id)}
             {@const l = live(m.id)}
             <button class="node" onclick={() => scrollTo(m.id)}>
-              <Tile name={m.name} color={m.color} size={16} status={l.status?.online ? "on" : l.checking || l.pending ? "busy" : "off"} />
+              <Tile name={m.name} color={m.color} size={16} status={l.status?.online && !l.lostAt ? "on" : l.checking || l.pending || l.lostAt ? "busy" : "off"} />
               <span class="label">{m.name}</span>
             </button>
             {#each m.vms as v (v.id)}

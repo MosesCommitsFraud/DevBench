@@ -7,7 +7,16 @@ export interface Live {
   checking: boolean;
   /** Pending action label shown on the machine, e.g. while waking up. */
   pending: string | null;
+  /**
+   * When polls started failing while the machine was online (ms). Its last status stays for a
+   * while, marked as not responding, so a busy server (updates, a restarting SSH service) is not
+   * shown as asleep after one failed poll.
+   */
+  lostAt: number | null;
 }
+
+/** How long a machine that stops answering keeps its last status before it counts as offline. */
+export const GRACE_MS = 60_000;
 
 export const store = $state({
   config: { machines: [] } as Config,
@@ -34,13 +43,13 @@ export async function loadConfig() {
 /** Replaces the config and makes sure every machine has a live entry. */
 export function setConfig(config: Config) {
   for (const m of config.machines) {
-    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null };
+    if (!store.live[m.id]) store.live[m.id] = { status: null, error: null, checking: true, pending: null, lostAt: null };
   }
   store.config = config;
   if (started) startPolling();
 }
 
-const placeholder: Live = { status: null, error: null, checking: true, pending: null };
+const placeholder: Live = { status: null, error: null, checking: true, pending: null, lostAt: null };
 
 export function live(id: string): Live {
   return store.live[id] ?? placeholder;
@@ -60,9 +69,15 @@ export async function poll(id: string) {
     const st = await api.machineStatus(id);
     l.status = st;
     l.error = null;
+    l.lostAt = null;
   } catch (e) {
-    l.status = null;
     l.error = asAppError(e);
+    if (l.status?.online) {
+      l.lostAt ??= Date.now();
+      if (Date.now() - l.lostAt > GRACE_MS) l.status = null;
+    } else {
+      l.status = null;
+    }
   } finally {
     l.checking = false;
     inFlight.delete(id);

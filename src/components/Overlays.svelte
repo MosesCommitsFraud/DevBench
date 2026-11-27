@@ -2,6 +2,7 @@
   import { X } from "@lucide/svelte";
   import { t } from "../lib/i18n.svelte";
   import { dismiss, ui } from "../lib/ui.svelte";
+  import ErrorNote from "./ErrorNote.svelte";
 
   function onKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
@@ -77,7 +78,7 @@
 <div class="notices" aria-live="polite">
   {#each ui.notices as n (n.id)}
     <div class="notice" class:error={n.tone === "error"}>
-      <span>{n.text}</span>
+      {#if n.tone === "error"}<div class="text"><ErrorNote message={n.text} /></div>{:else}<span class="text">{n.text}</span>{/if}
       <button class="btn ghost icon" aria-label="Dismiss" onclick={() => dismiss(n.id)}><X size={16} strokeWidth={1.5} /></button>
     </div>
   {/each}
@@ -152,7 +153,9 @@
     animation: rise var(--enter) var(--ease);
     overflow-wrap: anywhere;
   }
-  .notice span {
+  .notice .text {
+    flex: 1;
+    min-width: 0;
     padding-top: 6px;
   }
   .notice.error {

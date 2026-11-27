@@ -166,7 +166,8 @@ impl Core {
 
     pub async fn status(&self, machine: &str) -> Result<MachineStatus> {
         let (m, ep) = self.machine(machine)?;
-        let out = self.pool.exec(&ep, &status::script(&m), status::STATUS_TIMEOUT).await?;
+        let limit = status::STATUS_TIMEOUT.as_secs() - 3;
+        let out = self.pool.exec(&ep, &crate::ssh::bounded(&status::script(&m), limit), status::STATUS_TIMEOUT).await?;
         let now = Instant::now();
         let mut st = status::parse(&out.stdout);
         let mut cpu = self.cpu.lock().unwrap();
@@ -231,6 +232,19 @@ impl Core {
         if out.code != Some(0) {
             let msg = if out.stderr.trim().is_empty() { out.stdout.trim() } else { out.stderr.trim() };
             bail!("virsh {verb}: {msg}");
+        }
+        Ok(())
+    }
+
+    /// Whether libvirt starts the VM when the host boots (`virsh autostart [--disable]`).
+    pub async fn vm_autostart(&self, machine: &str, vm: &str, enabled: bool) -> Result<()> {
+        let (_, vm, ep) = self.machine_vm(machine, vm)?;
+        let flag = if enabled { "" } else { " --disable" };
+        let cmd = format!("LC_ALL=C virsh -c {} autostart{flag} {}", sh_quote(&vm.libvirt_uri), sh_quote(&vm.libvirt_name));
+        let out = self.pool.exec(&ep, &cmd, Duration::from_secs(20)).await?;
+        if out.code != Some(0) {
+            let msg = if out.stderr.trim().is_empty() { out.stdout.trim() } else { out.stderr.trim() };
+            bail!("virsh autostart: {msg}");
         }
         Ok(())
     }
@@ -329,7 +343,7 @@ impl Core {
     /// What DevBench needs on a Linux server, what is there, and how many updates wait.
     pub async fn server_check(&self, machine: &str) -> Result<server::ServerCheck> {
         let (_, ep) = self.machine(machine)?;
-        let out = self.pool.exec(&ep, server::CHECK, Duration::from_secs(60)).await?;
+        let out = self.pool.exec(&ep, &crate::ssh::bounded(server::CHECK, 55), Duration::from_secs(60)).await?;
         if out.code != Some(0) {
             bail!("server check: {}", out.stderr.trim());
         }

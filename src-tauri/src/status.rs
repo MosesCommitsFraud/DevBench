@@ -31,6 +31,8 @@ pub struct MachineStatus {
     pub net_rx_rate: f64,
     pub net_tx_rate: f64,
     pub vms: Vec<VmStatus>,
+    /// Packages being installed right now, by DevBench's update service or by the system itself.
+    pub updating: Option<Updating>,
     /// Raw (total, idle) CPU ticks; CPU usage is the difference between two polls.
     #[serde(skip)]
     pub cpu_ticks: Option<(u64, u64)>,
@@ -51,6 +53,17 @@ impl MachineStatus {
     }
 }
 
+#[derive(Debug, Serialize, Default, PartialEq)]
+pub struct Updating {
+    /// DevBench's update service (devbench-update) runs; false = apt or dpkg run otherwise,
+    /// e.g. unattended-upgrades.
+    pub devbench: bool,
+    /// The program at work, e.g. "dpkg" or "unattended-upgr".
+    pub process: String,
+    /// The latest line of the update log, e.g. "Setting up linux-image-6.8.0-49-generic ...".
+    pub line: String,
+}
+
 #[derive(Debug, Serialize, Default)]
 pub struct VmStatus {
     pub id: String,
@@ -65,6 +78,8 @@ pub struct VmStatus {
     pub cpu_percent: Option<f64>,
     /// IPv4 address libvirt knows for the guest (DHCP lease or ARP), if any.
     pub ip: String,
+    /// libvirt starts the VM when the host boots.
+    pub autostart: bool,
     /// Total CPU time of the VM in nanoseconds (for the usage between polls).
     #[serde(skip)]
     pub cpu_time: Option<u64>,
@@ -108,11 +123,13 @@ pub fn script(m: &Machine) -> String {
          echo @net; i=$(ip -o route show default 2>/dev/null | awk '{print $5; exit}'); echo \"$i\"; \
          ip -o -4 addr show dev \"$i\" 2>/dev/null | awk '{print $4; exit}'; grep \"^ *$i:\" /proc/net/dev\n",
     );
+    s.push_str(UPDATING);
     for vm in &m.vms {
         let (uri, name) = (sh_quote(&vm.libvirt_uri), sh_quote(&vm.libvirt_name));
         s.push_str(&format!(
             "echo @vm {id}; st=$(virsh -c {uri} domstate {name} 2>&1); echo \"$st\"\n\
              echo @vmstats {id}; virsh -c {uri} domstats {name} --cpu-total --balloon --vcpu 2>/dev/null | grep -E 'cpu.time=|balloon.maximum=|vcpu.current='\n\
+             echo @vmauto {id}; virsh -c {uri} dominfo {name} 2>/dev/null | sed -n 's/^Autostart: *//p'\n\
              echo @vmip {id}; [ \"$st\" = running ] && {{ virsh -c {uri} domifaddr {name} --source lease 2>/dev/null; virsh -c {uri} domifaddr {name} --source arp 2>/dev/null; }}\n",
             id = vm.id
         ));
@@ -121,6 +138,17 @@ pub fn script(m: &Machine) -> String {
     s.push_str("true\n");
     s
 }
+
+/// Whether packages are being installed: DevBench's update service, or apt/dpkg on their own.
+/// unattended-upgrade is matched by its command line: its process name is cut to
+/// "unattended-upgr", the same as the helper unattended-upgrade-shutdown that always runs.
+const UPDATING: &str = r#"echo @upd
+echo "unit|$(systemctl is-active devbench-update 2>/dev/null)"
+p="$(pgrep -x 'apt-get|apt|dpkg' 2>/dev/null | head -n1 | xargs -r ps -o comm= -p 2>/dev/null)"
+[ -z "$p" ] && pgrep -f '/usr/bin/unattended-upgrade( |$)' >/dev/null 2>&1 && p=unattended-upgrade
+echo "proc|$p"
+[ -r /var/log/devbench-update.log ] && echo "line|$(tail -n 30 /var/log/devbench-update.log | grep -v '^@@' | grep -v '^ *$' | tail -n1 | cut -c1-200)"
+"#;
 
 fn sections(out: &str) -> Vec<(&str, Vec<&str>)> {
     let mut v: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -185,6 +213,7 @@ pub fn parse(out: &str) -> MachineStatus {
                 st.kernel = lines.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
             }
             "os" => st.os = first.trim().to_string(),
+            "upd" => st.updating = updating(&lines),
             "cpumodel" => st.cpu_model = tidy_cpu_model(first),
             "net" => {
                 st.iface = first.trim().to_string();
@@ -217,6 +246,9 @@ pub fn parse(out: &str) -> MachineStatus {
                             _ => {}
                         }
                     }
+                } else if let Some(id) = name.strip_prefix("vmauto ") {
+                    let Some(v) = st.vms.iter_mut().find(|v| v.id == id) else { continue };
+                    v.autostart = first.trim() == "enable";
                 } else if let Some(id) = name.strip_prefix("vmip ") {
                     let Some(v) = st.vms.iter_mut().find(|v| v.id == id) else { continue };
                     v.ip = lines
@@ -232,6 +264,17 @@ pub fn parse(out: &str) -> MachineStatus {
         }
     }
     st
+}
+
+fn updating(lines: &[&str]) -> Option<Updating> {
+    let field = |k: &str| lines.iter().find_map(|l| l.strip_prefix(k)).map(|v| v.trim().to_string()).unwrap_or_default();
+    let unit = field("unit|");
+    let devbench = unit == "active" || unit == "activating";
+    let process = field("proc|");
+    if !devbench && process.is_empty() {
+        return None;
+    }
+    Some(Updating { devbench, process, line: if devbench { field("line|") } else { String::new() } })
 }
 
 /// "AMD Ryzen 9 7950X 16-Core Processor" -> "AMD Ryzen 9 7950X".
@@ -307,5 +350,35 @@ mod tests {
         assert_eq!(st.vms[0].vcpus, 4);
         assert_eq!(st.vms[0].memory, 8 * 1024 * 1024 * 1024);
         assert_eq!(st.vms[0].ip, "192.168.122.5");
+        assert!(!st.vms[0].autostart);
+        assert!(st.updating.is_none());
+    }
+
+    #[test]
+    fn script_is_valid_shell() {
+        let mut m = Machine::default();
+        m.vms.push(Vm { id: "w".into(), libvirt_name: "win 11".into(), ..Default::default() });
+        let s = script(&m);
+        assert!(s.contains("echo @upd") && s.contains("echo @vmauto w"));
+        // Syntax check where a bash is at hand (Linux CI, Git Bash).
+        if let Ok(out) = std::process::Command::new("bash").args(["-n", "-c", &s]).output() {
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+
+    #[test]
+    fn parses_autostart_and_updates() {
+        let out = "@vm abc\nrunning\n@vmauto abc\nenable\n@vm def\nshut off\n@vmauto def\ndisable\n\
+                   @upd\nunit|active\nproc|dpkg\nline|Setting up libvirt-daemon (10.0.0) ...\n";
+        let st = parse(out);
+        assert!(st.vms[0].autostart && !st.vms[1].autostart);
+        assert_eq!(
+            st.updating,
+            Some(Updating { devbench: true, process: "dpkg".into(), line: "Setting up libvirt-daemon (10.0.0) ...".into() })
+        );
+        let idle = parse("@upd\nunit|inactive\nproc|\nline|0 upgraded, 0 newly installed\n");
+        assert!(idle.updating.is_none());
+        let other = parse("@upd\nunit|inactive\nproc|unattended-upgr\n").updating.unwrap();
+        assert!(!other.devbench && other.line.is_empty());
     }
 }

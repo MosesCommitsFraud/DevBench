@@ -88,6 +88,11 @@ async fn vm_action(state: State<'_, AppState>, machine_id: String, vm_id: String
 }
 
 #[tauri::command]
+async fn vm_autostart(state: State<'_, AppState>, machine_id: String, vm_id: String, enabled: bool) -> CmdResult<()> {
+    Ok(state.core.vm_autostart(&machine_id, &vm_id, enabled).await?)
+}
+
+#[tauri::command]
 async fn list_domains(state: State<'_, AppState>, machine_id: String, uri: String) -> CmdResult<Vec<String>> {
     Ok(state.core.list_domains(&machine_id, &uri).await?)
 }
@@ -271,7 +276,7 @@ async fn server_check(state: State<'_, AppState>, machine_id: String) -> CmdResu
 /// The script behind a setup step, to show before it runs.
 #[tauri::command]
 fn setup_script(step: String) -> Option<String> {
-    server::script(&step).map(String::from)
+    server::script(&step)
 }
 
 #[tauri::command]
@@ -362,6 +367,7 @@ pub fn run() {
             wake,
             power,
             vm_action,
+            vm_autostart,
             list_domains,
             trust_host_key,
             vnc_open,

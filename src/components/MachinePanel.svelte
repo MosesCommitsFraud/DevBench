@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { Power, RotateCcw, Zap, KeyRound, SquareTerminal, Cpu, MemoryStick, HardDrive, ArrowDownUp, FolderOpen, Ellipsis, EthernetPort, ArrowUpRight, Wrench, ArrowUpCircle } from "@lucide/svelte";
+  import { Power, RotateCcw, Zap, KeyRound, SquareTerminal, Cpu, MemoryStick, HardDrive, ArrowDownUp, FolderOpen, Ellipsis, EthernetPort, ArrowUpRight, Wrench, ArrowUpCircle, ScrollText } from "@lucide/svelte";
   import { api, type Machine, type SetupStep, type Vm } from "../lib/api";
-  import { pendingUpdates, servers } from "../lib/server.svelte";
+  import { checkServer, pendingUpdates, servers } from "../lib/server.svelte";
+  import { explain } from "../lib/errors";
+  import ErrorNote from "./ErrorNote.svelte";
   import SetupDialog from "./SetupDialog.svelte";
   import { bytes, duration, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
-  import { boost, live, poll } from "../lib/store.svelte";
+  import { boost, GRACE_MS, live, poll } from "../lib/store.svelte";
   import { askHostKey, confirm, notify, run } from "../lib/ui.svelte";
   import { browse, forwardsOf, openPorts } from "../lib/ports.svelte";
   import Menu from "./Menu.svelte";
@@ -31,6 +33,34 @@
   const st = $derived(l.status);
   const online = $derived(!!st?.online);
   const hostKeyError = $derived(l.error && l.error.kind !== "error" ? l.error : null);
+  // Polls fail, but the machine was online a moment ago: keep its figures, say it does not answer.
+  const stale = $derived(online && !!l.lostAt);
+  // Offline, but the error shows it is switched on (connection reset, refused, login failed ...).
+  const upButLocked = $derived(!online && !!l.error && explain(l.error.message).up === true);
+  const updating = $derived(online ? (st?.updating ?? null) : null);
+
+  const ago = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : duration(ms / 1000));
+  // A tick for "values from 20 s ago" while the machine does not answer.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!stale) return;
+    const id = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+
+  // When DevBench's update service ends, check the server again (counts, result) and say so.
+  let wasUpdating = false;
+  $effect(() => {
+    const running = !!updating?.devbench;
+    if (wasUpdating && !running && online && !stale) {
+      void checkServer(machine.id).then(() => {
+        const last = servers[machine.id]?.check?.last_update;
+        if (last?.code === 0) notify(t("update.done", machine.name));
+        else if (last) notify(t("update.failed", machine.name), "error");
+      });
+    }
+    if (!stale) wasUpdating = running;
+  });
 
   let busy = $state<Record<string, boolean>>({});
 
@@ -61,7 +91,8 @@
       t(action === "poweroff" ? "machine.poweroff.body" : "machine.reboot.body"),
       t(action === "poweroff" ? "machine.poweroff" : "machine.reboot"),
     );
-    if (ok) await act(action, () => api.power(machine.id, action));
+    // Expected to go quiet now: no grace period of "not responding" before it counts as off.
+    if (ok && (await act(action, () => api.power(machine.id, action)))) l.lostAt = Date.now() - GRACE_MS;
   }
 
   interface Pending {
@@ -111,9 +142,11 @@
   const ratio = (used: number, total: number) => (total > 0 ? Math.min(1, used / total) : 0);
   const target = $derived(machine.ssh_user ? `${machine.ssh_user}@${machine.ssh_host}` : machine.ssh_host);
   const runningVms = $derived(st?.vms.filter((v) => v.running).length ?? 0);
-  const dot = $derived(online ? "on" : l.checking || l.pending ? "busy" : "");
+  const dot = $derived(stale ? "busy" : online ? "on" : l.checking || l.pending ? "busy" : "");
   const status = $derived(
-    online
+    stale
+      ? `${t("machine.notResponding")} · ${t("machine.lastSeen", ago(now - l.lostAt!))}`
+      : online
       ? t("machine.upFor", duration(st!.uptime_secs))
       : l.pending
         ? `${l.pending} …`
@@ -166,7 +199,7 @@
         <button class="btn" onclick={() => onOpen("terminal", null)}><SquareTerminal size={14} strokeWidth={1.75} />{t("machine.terminal")}</button>
         <button class="btn" onclick={() => onFiles(null)}><FolderOpen size={14} strokeWidth={1.75} />{t("nav.files")}</button>
         <button class="btn" onclick={() => openPorts(machine.id, null)}><EthernetPort size={14} strokeWidth={1.75} />{t("ports.title")}</button>
-        {#if updates}
+        {#if updates && !updating}
           <button class="btn updates" title={t("setup.title")} onclick={() => (setupOpen = true)}>
             <ArrowUpCircle size={14} strokeWidth={1.75} />{t("setup.updatesShort", updates)}
           </button>
@@ -190,8 +223,28 @@
     </div>
   </header>
 
+  {#if stale && l.error}
+    <div class="rows band">
+      <span class="dot busy"></span>
+      <ErrorNote message={l.error.message} />
+    </div>
+  {/if}
+
+  {#if updating}
+    <div class="rows band">
+      <span class="dot busy"></span>
+      <div class="band-text">
+        <p>{updating.devbench ? t("update.running") : t("update.system", updating.process)} …</p>
+        {#if updating.line}<p class="mono line" title={updating.line}>{updating.line}</p>{/if}
+      </div>
+      {#if updating.devbench}
+        <button class="btn" onclick={() => onOpen("terminal", null, "update-log")}><ScrollText size={14} strokeWidth={1.75} />{t("update.follow")}</button>
+      {/if}
+    </div>
+  {/if}
+
   {#if online && st}
-    <div class="rows stats">
+    <div class="rows stats" class:stale>
       {#each stats as s (s.label)}
         {@const Icon = s.icon}
         <div class="stat" class:hot={s.ratio > 0.9}>
@@ -212,11 +265,20 @@
     </div>
   {:else if !l.checking}
     <div class="rows asleep">
-      <Sketch kind="sleeping" size={46} />
-      <div>
-        <p>{l.pending ? t("machine.wakingUp") : machine.mac ? t("machine.asleepWake") : t("machine.noWake")}</p>
-        {#if l.error && !l.pending}<p class="mono problem">{l.error.message}</p>{/if}
-      </div>
+      {#if upButLocked && !l.pending}
+        <Sketch kind="lost" size={46} />
+        <div class="asleep-text">
+          <p>{t("machine.upNoAccess")}</p>
+          <ErrorNote message={l.error!.message} />
+        </div>
+      {:else}
+        <Sketch kind="sleeping" size={46} />
+        <div class="asleep-text">
+          <p>{l.pending ? t("machine.wakingUp") : machine.mac ? t("machine.asleepWake") : t("machine.noWake")}</p>
+          <!-- "does not answer" is what asleep looks like; other reasons (no network path, unknown name) are worth a line -->
+          {#if l.error && !l.pending && explain(l.error.message).title !== t("err.timeout")}<ErrorNote message={l.error.message} />{/if}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -236,10 +298,11 @@
           vs={vmStatus(vm)}
           {online}
           pending={vmPending[vm.id]?.label ?? null}
-          busy={{ start: !!busy[`${vm.id}:start`], shutdown: !!busy[`${vm.id}:shutdown`] }}
+          busy={{ start: !!busy[`${vm.id}:start`], shutdown: !!busy[`${vm.id}:shutdown`], autostart: !!busy[`${vm.id}:autostart`] }}
           onOpen={(kind) => onOpen(kind, vm)}
           onFiles={() => onFiles(vm)}
           onAction={(a) => vmAction(vm, a)}
+          onAutostart={(on) => act(`${vm.id}:autostart`, () => api.vmAutostart(machine.id, vm.id, on), t(on ? "vm.autostart.enabled" : "vm.autostart.disabled", vm.name))}
         />
       {/each}
     </div>
@@ -424,15 +487,50 @@
     gap: 16px;
     padding: 12px 16px;
   }
+  /* Picture and text sit side by side, not as rows: no divider between them */
+  .asleep > :global(*) {
+    border-top: none;
+  }
   .asleep p {
     margin: 0;
     color: var(--text-2);
   }
-  .problem {
-    margin-top: 2px !important;
+  .asleep-text {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+  .stats.stale {
+    opacity: 0.55;
+  }
+  .band {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 10px 10px 16px;
+  }
+  .band > .dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    align-self: flex-start;
+    margin-top: 7px;
+  }
+  .band > :global(.note),
+  .band-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .band-text p {
+    margin: 0;
+  }
+  .band-text .line {
+    margin-top: 2px;
     font-size: 11px;
-    color: var(--text-3) !important;
-    overflow-wrap: anywhere;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .section-head {
     display: flex;

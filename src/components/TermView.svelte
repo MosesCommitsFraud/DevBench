@@ -8,6 +8,7 @@
   import { t } from "../lib/i18n.svelte";
   import { run } from "../lib/ui.svelte";
   import { theme, token } from "../lib/theme.svelte";
+  import ErrorNote from "./ErrorNote.svelte";
 
   // A shell on the machine (vm null) or in a guest, over SSH, inside the window. With `step`
   // the first connection runs that setup step's script (sudo asks for the password here);
@@ -165,7 +166,7 @@
 
 <div class="term" bind:this={root}>
   <header>
-    <button class="btn ghost" onclick={onClose}><ArrowLeft size={16} strokeWidth={1.5} />{t("vnc.close")}</button>
+    <button class="btn ghost back" onclick={onClose}><ArrowLeft size={16} strokeWidth={1.5} />{t("vnc.close")}</button>
     <div class="title">
       <span class="led" class:on={phase === "connected"} class:busy={phase === "connecting"}></span>
       <span>{title}</span>
@@ -185,7 +186,7 @@
     {#if phase === "closed"}
       <div class="state">
         <p class="secondary">{t("term.closed")}</p>
-        {#if problem}<p class="mono muted problem">{problem}</p>{/if}
+        {#if problem}<ErrorNote message={problem} center />{/if}
         <button class="btn primary" onclick={connect}><RefreshCw size={16} strokeWidth={1.5} />{t("vnc.reconnect")}</button>
       </div>
     {/if}
@@ -210,6 +211,10 @@
     padding: 0 8px;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
+  }
+  /* Only as wide as its text, not the whole first column */
+  .back {
+    justify-self: start;
   }
   .title {
     display: flex;
@@ -248,9 +253,5 @@
   }
   .state p {
     margin: 0;
-  }
-  .problem {
-    max-width: 560px;
-    overflow-wrap: anywhere;
   }
 </style>
