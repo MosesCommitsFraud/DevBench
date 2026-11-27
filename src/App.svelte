@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Server, Activity, Settings, FolderOpen, Sun, Moon, Search, SquareTerminal, Monitor, Play, Zap, Palette } from "@lucide/svelte";
+  import { Server, Activity, Settings, FolderOpen, Sun, Moon, Search, SquareTerminal, Monitor, Play, Zap, Palette, ArrowUpCircle } from "@lucide/svelte";
   import { api, type Machine, type SetupStep, type Vm } from "./lib/api";
   import { checkServer, startServerChecks } from "./lib/server.svelte";
   import { t } from "./lib/i18n.svelte";
@@ -19,6 +19,7 @@
   import VncView from "./components/VncView.svelte";
   import TermView from "./components/TermView.svelte";
   import Overlays from "./components/Overlays.svelte";
+  import UpdateDialog from "./components/UpdateDialog.svelte";
   import Titlebar from "./components/Titlebar.svelte";
   import CommandPalette, { type Command } from "./components/CommandPalette.svelte";
   import Sketch from "./components/Sketch.svelte";
@@ -165,9 +166,14 @@
       </nav>
 
       <div class="foot">
+        {#if updates.available && (updates.status === "available" || updates.status === "downloading" || updates.status === "ready" || updates.status === "error")}
+          <button class="nav update-line" onclick={() => (updates.dialog = true)}>
+            <ArrowUpCircle size={16} strokeWidth={1.5} />{t("update.sidebar", updates.available.version)}
+            {#if updates.status === "downloading" && updates.progress !== null}<span class="pct mono">{Math.round(updates.progress * 100)} %</span>{/if}
+          </button>
+        {/if}
         <button class="nav" class:active={view === "settings"} onclick={() => (view = "settings")}>
           <Settings size={16} strokeWidth={1.5} />{t("nav.settings")}
-          {#if updates.status === "available"}<span class="count update">{t("update.badge")}</span>{/if}
         </button>
         <button class="nav" onclick={toggleTheme} title={t("theme.toggle")}>
           {#if theme() === "dark"}<Sun size={16} strokeWidth={1.5} />{t("theme.light")}{:else}<Moon size={16} strokeWidth={1.5} />{t("theme.dark")}{/if}
@@ -214,6 +220,7 @@
 
 <CommandPalette bind:open={palette} {commands} />
 <PortsDialog />
+{#if updates.dialog}<UpdateDialog />{/if}
 <Overlays />
 
 <style>
@@ -360,9 +367,13 @@
     color: var(--on);
     background: var(--on-soft);
   }
-  .count.update {
-    color: var(--accent-text);
-    background: var(--accent-soft);
+  .update-line {
+    color: var(--text);
+  }
+  .update-line .pct {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-3);
   }
   main {
     overflow-y: auto;

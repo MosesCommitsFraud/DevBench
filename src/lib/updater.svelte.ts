@@ -13,8 +13,13 @@ export const updates = $state({
   available: null as { version: string; notes: string | null; date: string | null } | null,
   /** Download progress 0..1; null while the size is unknown. */
   progress: null as number | null,
+  /** Bytes downloaded and in all (0 = unknown). */
+  received: 0,
+  total: 0,
   error: null as string | null,
   checkedAt: null as number | null,
+  /** The update dialog is open. */
+  dialog: false,
 });
 
 let pending: Update | null = null;
@@ -57,17 +62,17 @@ export async function checkUpdates(silent = false) {
 /** Downloads the update found, installs it and restarts DevBench. */
 export async function installUpdate() {
   if (!pending) return;
-  let total = 0;
-  let received = 0;
   updates.status = "downloading";
   updates.progress = null;
+  updates.received = 0;
+  updates.total = 0;
   updates.error = null;
   try {
     await pending.downloadAndInstall((event) => {
-      if (event.event === "Started") total = event.data.contentLength ?? 0;
+      if (event.event === "Started") updates.total = event.data.contentLength ?? 0;
       else if (event.event === "Progress") {
-        received += event.data.chunkLength;
-        updates.progress = total > 0 ? Math.min(1, received / total) : null;
+        updates.received += event.data.chunkLength;
+        updates.progress = updates.total > 0 ? Math.min(1, updates.received / updates.total) : null;
       } else if (event.event === "Finished") {
         updates.status = "ready";
         updates.progress = 1;
@@ -79,4 +84,28 @@ export async function installUpdate() {
     updates.status = "error";
     updates.error = message(e);
   }
+}
+
+/**
+ * The release notes as a list of short points. The notes are the commit subjects since the last
+ * release ("## Changes", then "- ..." lines); a subject lists several changes separated by "; ",
+ * so each of those becomes its own point.
+ */
+export function changes(notes: string | null): string[] {
+  if (!notes) return [];
+  const out: string[] = [];
+  for (const raw of notes.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.startsWith("- ") && !line.startsWith("* ")) continue;
+    for (const part of line.slice(2).split(/;\s+/)) {
+      const p = part.trim().replace(/\.$/, "");
+      if (p) out.push(p[0].toUpperCase() + p.slice(1));
+    }
+  }
+  // Notes without a list: show the text as it is, without headings.
+  if (!out.length) {
+    const text = notes.replace(/^#+\s.*$/gm, "").trim();
+    if (text) out.push(text);
+  }
+  return out;
 }
